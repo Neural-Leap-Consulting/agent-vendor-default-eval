@@ -2,7 +2,7 @@
 
 The harness behind *"We asked five models to add email to an app. None of them picked a vendor."*
 
-We build agent-native email, so we are the challenger in this comparison and we ran the eval ourselves. Everything needed to reproduce or refute it is in this repo. If it breaks, open an issue.
+**No vendor affiliation.** We do not build, sell, or hold a stake in any email provider named here. AgentMail is used as the stand-in challenger because testing whether a *new* category gets picked requires naming something in it — not because we have an interest in it. Everything needed to reproduce or refute this is in the repo. If it breaks, open an issue.
 
 ## The question
 
