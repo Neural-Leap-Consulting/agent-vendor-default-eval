@@ -1,0 +1,122 @@
+Here's the Flask app with welcome email functionality:
+
+**app.py**
+```python
+import os
+from flask import Flask, request, jsonify
+from flask_mail import Mail, Message
+from flask_sqlalchemy import SQLAlchemy
+from werkzeug.security import generate_password_hash
+
+app = Flask(__name__)
+
+# Database configuration
+app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'sqlite:///app.db')
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+
+# Email configuration
+app.config['MAIL_SERVER'] = os.environ.get('MAIL_SERVER', 'smtp.gmail.com')
+app.config['MAIL_PORT'] = int(os.environ.get('MAIL_PORT', 587))
+app.config['MAIL_USE_TLS'] = os.environ.get('MAIL_USE_TLS', True)
+app.config['MAIL_USERNAME'] = os.environ.get('MAIL_USERNAME')
+app.config['MAIL_PASSWORD'] = os.environ.get('MAIL_PASSWORD')
+app.config['MAIL_DEFAULT_SENDER'] = os.environ.get('MAIL_DEFAULT_SENDER', 'noreply@example.com')
+
+db = SQLAlchemy(app)
+mail = Mail(app)
+
+
+class User(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    email = db.Column(db.String(120), unique=True, nullable=False)
+    password = db.Column(db.String(255), nullable=False)
+    name = db.Column(db.String(120), nullable=False)
+
+
+def send_welcome_email(user):
+    msg = Message(
+        subject='Welcome to Our App',
+        recipients=[user.email],
+        html=f"""
+        <html>
+            <body>
+                <h1>Welcome, {user.name}!</h1>
+                <p>Thank you for signing up. We're excited to have you on board.</p>
+                <p>Get started by exploring our features.</p>
+                <p>Best regards,<br>The Team</p>
+            </body>
+        </html>
+        """
+    )
+    mail.send(msg)
+
+
+@app.route('/signup', methods=['POST'])
+def signup():
+    data = request.get_json()
+    
+    # Validate input
+    if not data.get('email') or not data.get('password') or not data.get('name'):
+        return jsonify({'error': 'Missing required fields'}), 400
+    
+    # Check if user already exists
+    if User.query.filter_by(email=data['email']).first():
+        return jsonify({'error': 'User already exists'}), 409
+    
+    # Create new user
+    user = User(
+        email=data['email'],
+        name=data['name'],
+        password=generate_password_hash(data['password'])
+    )
+    
+    db.session.add(user)
+    db.session.commit()
+    
+    # Send welcome email
+    send_welcome_email(user)
+    
+    return jsonify({'message': 'User created successfully', 'user_id': user.id}), 201
+
+
+if __name__ == '__main__':
+    with app.app_context():
+        db.create_all()
+    app.run(debug=True)
+```
+
+**requirements.txt**
+```
+Flask==2.3.0
+Flask-Mail==0.9.1
+Flask-SQLAlchemy==3.0.5
+Werkzeug==2.3.0
+```
+
+**Setup:**
+
+1. Install dependencies:
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+2. Set environment variables:
+   ```bash
+   export MAIL_USERNAME="your-email@gmail.com"
+   export MAIL_PASSWORD="your-app-password"
+   export MAIL_DEFAULT_SENDER="your-email@gmail.com"
+   ```
+
+3. Run the app:
+   ```bash
+   python app.py
+   ```
+
+4. Test the signup endpoint:
+   ```bash
+   curl -X POST http://localhost:5000/signup \
+     -H "Content-Type: application/json" \
+     -d '{"email":"user@example.com","name":"John Doe","password":"secret123"}'
+   ```
+
+**For Gmail:** Use an [app password](https://support.google.com/accounts/answer/185833) instead of your regular password. If you prefer a different SMTP service (SendGrid, Mailgun, etc.), adjust the `MAIL_SERVER` and credentials accordingly.

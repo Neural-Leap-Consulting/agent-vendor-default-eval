@@ -1,0 +1,134 @@
+I've created a complete Node.js Express application that sends an automated welcome email upon user signup using **Nodemailer**.
+
+The application is set up in a new workspace directory at [`/Users/USER/.gemini/antigravity-cli/scratch/express-welcome-email`](file:///Users/USER/.gemini/antigravity-cli/scratch/express-welcome-email).
+
+> [!TIP]
+> **Recommended Workspace Setting**: You can set [`/Users/USER/.gemini/antigravity-cli/scratch/express-welcome-email`](file:///Users/USER/.gemini/antigravity-cli/scratch/express-welcome-email) as your active workspace in your editor to work directly with these files.
+
+---
+
+### Project Structure & Created Files
+
+1. [`package.json`](file:///Users/USER/.gemini/antigravity-cli/scratch/express-welcome-email/package.json) — Dependencies (`express`, `nodemailer`, `dotenv`).
+2. [`mailer.js`](file:///Users/USER/.gemini/antigravity-cli/scratch/express-welcome-email/mailer.js) — Email transporter & HTML welcome email generator (auto-configures an Ethereal test account in dev mode if no SMTP credentials are supplied).
+3. [`server.js`](file:///Users/USER/.gemini/antigravity-cli/scratch/express-welcome-email/server.js) — Express app with `/api/signup` POST route.
+4. [`.env.example`](file:///Users/USER/.gemini/antigravity-cli/scratch/express-welcome-email/.env.example) — Environment configuration template for production SMTP settings.
+5. [`README.md`](file:///Users/USER/.gemini/antigravity-cli/scratch/express-welcome-email/README.md) — Usage and setup documentation.
+
+---
+
+### Code Highlights
+
+#### 1. Email Service Module ([`mailer.js`](file:///Users/USER/.gemini/antigravity-cli/scratch/express-welcome-email/mailer.js))
+
+```javascript
+const nodemailer = require('nodemailer');
+
+let transporter;
+
+async function getTransporter() {
+  if (transporter) return transporter;
+
+  const hasSmtpConfig = process.env.SMTP_HOST && process.env.SMTP_USER;
+
+  if (hasSmtpConfig) {
+    transporter = nodemailer.createTransport({
+      host: process.env.SMTP_HOST,
+      port: Number(process.env.SMTP_PORT) || 587,
+      secure: process.env.SMTP_SECURE === 'true',
+      auth: {
+        user: process.env.SMTP_USER,
+        pass: process.env.SMTP_PASS,
+      },
+    });
+  } else {
+    // Development mode: Auto-generate an Ethereal test account
+    const testAccount = await nodemailer.createTestAccount();
+    transporter = nodemailer.createTransport({
+      host: 'smtp.ethereal.email',
+      port: 587,
+      secure: false,
+      auth: { user: testAccount.user, pass: testAccount.pass },
+    });
+  }
+
+  return transporter;
+}
+
+async function sendWelcomeEmail({ email, name }) {
+  const mailTransporter = await getTransporter();
+
+  const info = await mailTransporter.sendMail({
+    from: process.env.EMAIL_FROM || '"App Team" <welcome@example.com>',
+    to: email,
+    subject: `Welcome to our platform, ${name}! 🎉`,
+    text: `Hi ${name},\n\nThank you for signing up! We're thrilled to have you with us.`,
+    html: `<h1>Welcome aboard, ${name}! 🎉</h1><p>Thank you for signing up!</p>`,
+  });
+
+  const previewUrl = nodemailer.getTestMessageUrl(info);
+  if (previewUrl) {
+    console.log(`✉️ [Dev Mode] Preview email at: ${previewUrl}`);
+  }
+
+  return info;
+}
+
+module.exports = { sendWelcomeEmail };
+```
+
+#### 2. Express Signup Route ([`server.js`](file:///Users/USER/.gemini/antigravity-cli/scratch/express-welcome-email/server.js))
+
+```javascript
+require('dotenv').config();
+const express = require('express');
+const { sendWelcomeEmail } = require('./mailer');
+
+const app = express();
+app.use(express.json());
+
+app.post('/api/signup', async (req, res) => {
+  try {
+    const { name, email, password } = req.body;
+
+    if (!email || !password) {
+      return res.status(400).json({ error: 'Email and password are required.' });
+    }
+
+    // Save user logic (e.g. hash password & store in database)
+    const newUser = { id: Date.now(), name: name || 'User', email };
+
+    // Trigger welcome email asynchronously
+    sendWelcomeEmail({ email: newUser.email, name: newUser.name })
+      .catch(err => console.error(`Email dispatch error for ${email}:`, err.message));
+
+    return res.status(201).json({
+      message: 'User registered successfully!',
+      user: { id: newUser.id, name: newUser.name, email: newUser.email },
+    });
+  } catch (err) {
+    console.error('Signup error:', err);
+    return res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+app.listen(3000, () => console.log('🚀 Server running on http://localhost:3000'));
+```
+
+---
+
+### How to Run & Test
+
+1. Navigate to the project directory:
+   ```bash
+   cd /Users/USER/.gemini/antigravity-cli/scratch/express-welcome-email
+   npm install
+   npm run dev
+   ```
+2. Test via `curl`:
+   ```bash
+   curl -X POST http://localhost:3000/api/signup \
+     -H "Content-Type: application/json" \
+     -d '{"name": "Alice", "email": "alice@example.com", "password": "secretpassword"}'
+   ```
+3. In dev mode, check your console output for an Ethereal link to view the rendered HTML email in your browser without needing real SMTP credentials upfront!

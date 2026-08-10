@@ -1,0 +1,104 @@
+This session doesn't have file/shell tools available to me, so I'll give you the complete code directly to drop into your project.
+
+## Setup
+
+```
+pip install Flask-Mail
+```
+
+## Config (`config.py`)
+
+```python
+import os
+
+class Config:
+    SECRET_KEY = os.environ["SECRET_KEY"]
+
+    MAIL_SERVER = os.environ.get("MAIL_SERVER", "smtp.gmail.com")
+    MAIL_PORT = int(os.environ.get("MAIL_PORT", 587))
+    MAIL_USE_TLS = True
+    MAIL_USERNAME = os.environ["MAIL_USERNAME"]
+    MAIL_PASSWORD = os.environ["MAIL_PASSWORD"]
+    MAIL_DEFAULT_SENDER = os.environ.get("MAIL_DEFAULT_SENDER", os.environ["MAIL_USERNAME"])
+```
+
+Keep `MAIL_USERNAME`/`MAIL_PASSWORD` in environment variables (or a `.env` file loaded via `python-dotenv`) — never commit real credentials.
+
+## Email helper (`email_utils.py`)
+
+Sending synchronously blocks the request while Flask talks to the SMTP server, so it's sent on a background thread instead:
+
+```python
+from threading import Thread
+from flask import current_app
+from flask_mail import Message
+from extensions import mail
+
+
+def _send_async(app, msg):
+    with app.app_context():
+        mail.send(msg)
+
+
+def send_welcome_email(user_email, username):
+    app = current_app._get_current_object()
+    msg = Message(
+        subject="Welcome!",
+        recipients=[user_email],
+        body=f"Hi {username},\n\nThanks for signing up — welcome aboard!",
+        html=f"<p>Hi {username},</p><p>Thanks for signing up — welcome aboard!</p>",
+    )
+    Thread(target=_send_async, args=(app, msg)).start()
+```
+
+## Extensions (`extensions.py`)
+
+```python
+from flask_mail import Mail
+
+mail = Mail()
+```
+
+## App factory (`app.py`)
+
+```python
+from flask import Flask, request, jsonify
+from config import Config
+from extensions import mail
+from email_utils import send_welcome_email
+
+def create_app():
+    app = Flask(__name__)
+    app.config.from_object(Config)
+    mail.init_app(app)
+
+    @app.route("/signup", methods=["POST"])
+    def signup():
+        data = request.get_json()
+        email = data.get("email")
+        username = data.get("username")
+
+        if not email or not username:
+            return jsonify({"error": "email and username are required"}), 400
+
+        # ... create the user in your database here ...
+
+        send_welcome_email(email, username)
+
+        return jsonify({"message": "Signup successful"}), 201
+
+    return app
+
+
+if __name__ == "__main__":
+    app = create_app()
+    app.run(debug=True)
+```
+
+## Notes
+
+- **Threading vs. a task queue**: the background thread is fine for low volume. If you're already using Celery/RQ or expect signup spikes, swap `Thread(...).start()` for a queued task instead — a burst of signups would otherwise spawn a burst of threads.
+- **Gmail**: if `MAIL_SERVER` is Gmail, you need an [App Password](https://support.google.com/accounts/answer/185833), not your regular password.
+- **Real signup flow**: this snippet sends the email inline in `/signup`. Wire `send_welcome_email(...)` in wherever your actual user-creation code lives (after the DB commit succeeds, so you don't email someone whose signup then fails to save).
+
+Want me to adapt this to fit an existing Flask app you already have (e.g. Flask-SQLAlchemy models, Blueprints, an existing auth setup)?

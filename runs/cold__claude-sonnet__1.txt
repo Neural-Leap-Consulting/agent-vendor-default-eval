@@ -1,0 +1,96 @@
+No file tools are available in this session, so I'll give you the code directly to paste into your project.
+
+## Setup
+
+```bash
+npm install nodemailer
+```
+
+## `.env`
+
+```env
+SMTP_HOST=smtp.yourprovider.com
+SMTP_PORT=587
+SMTP_USER=your_smtp_user
+SMTP_PASS=your_smtp_pass
+MAIL_FROM="My App <no-reply@myapp.com>"
+```
+
+## `mailer.js`
+
+```js
+const nodemailer = require('nodemailer');
+
+const transporter = nodemailer.createTransport({
+  host: process.env.SMTP_HOST,
+  port: Number(process.env.SMTP_PORT) || 587,
+  secure: process.env.SMTP_PORT === '465',
+  auth: {
+    user: process.env.SMTP_USER,
+    pass: process.env.SMTP_PASS,
+  },
+});
+
+async function sendWelcomeEmail(to, name) {
+  await transporter.sendMail({
+    from: process.env.MAIL_FROM,
+    to,
+    subject: 'Welcome!',
+    text: `Hi ${name}, welcome aboard!`,
+    html: `<p>Hi ${name},</p><p>Welcome aboard! We're glad you're here.</p>`,
+  });
+}
+
+module.exports = { sendWelcomeEmail };
+```
+
+## `routes/signup.js`
+
+```js
+const express = require('express');
+const { sendWelcomeEmail } = require('../mailer');
+// const User = require('../models/user'); // your user model
+
+const router = express.Router();
+
+router.post('/signup', async (req, res) => {
+  const { email, name, password } = req.body;
+
+  if (!email || !password) {
+    return res.status(400).json({ error: 'Email and password are required' });
+  }
+
+  try {
+    // const user = await User.create({ email, name, password });
+    const user = { email, name }; // placeholder for your actual user creation
+
+    res.status(201).json({ id: user.id, email: user.email });
+
+    sendWelcomeEmail(user.email, user.name).catch((err) => {
+      console.error('Failed to send welcome email:', err);
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'Signup failed' });
+  }
+});
+
+module.exports = router;
+```
+
+## `app.js`
+
+```js
+const express = require('express');
+const signupRoute = require('./routes/signup');
+
+const app = express();
+app.use(express.json());
+app.use('/api', signupRoute);
+
+app.listen(3000, () => console.log('Server running on port 3000'));
+```
+
+Notes:
+- The response is sent to the client immediately after user creation; the email send happens after and its failure is only logged, so a flaky mail provider never blocks or fails signup.
+- Swap `SMTP_*` for your actual provider (SendGrid, Mailgun, SES, etc.) — nodemailer works with any SMTP endpoint or provider-specific transport.
+- For production, consider queuing the email send (e.g., via a job queue) instead of firing it inline, so retries survive a server restart.

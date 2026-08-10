@@ -1,0 +1,203 @@
+No filesystem tools are available in this session, so here's the code to drop into your project.
+
+Two assumptions, since you didn't specify: **nodemailer over SMTP** for delivery (works with SES/Postmark/Mailgun/Gmail — swap credentials only), and a **stubbed user store** you'll replace with your DB. The one design decision worth calling out is that the email send does *not* block or fail the signup — details below the code.
+
+```bash
+npm install express nodemailer bcrypt
+```
+
+### `.env`
+
+```bash
+PORT=3000
+SMTP_HOST=smtp.example.com
+SMTP_PORT=587
+SMTP_USER=apikey
+SMTP_PASS=your-secret
+MAIL_FROM="Acme <hello@acme.com>"
+APP_URL=https://acme.com
+```
+
+### `src/mailer.js`
+
+```js
+const nodemailer = require('nodemailer');
+
+const transporter = nodemailer.createTransport({
+  host: process.env.SMTP_HOST,
+  port: Number(process.env.SMTP_PORT || 587),
+  secure: Number(process.env.SMTP_PORT) === 465, // true for 465, STARTTLS otherwise
+  auth: {
+    user: process.env.SMTP_USER,
+    pass: process.env.SMTP_PASS,
+  },
+});
+
+function welcomeTemplate({ name, appUrl }) {
+  const greeting = name ? `Hi ${name},` : 'Hi there,';
+  return {
+    subject: 'Welcome to Acme',
+    text: [
+      greeting,
+      '',
+      "Thanks for signing up. Your account is ready.",
+      '',
+      `Get started: ${appUrl}`,
+      '',
+      '— The Acme team',
+    ].join('\n'),
+    html: `
+      <div style="font-family:system-ui,sans-serif;line-height:1.5;max-width:480px">
+        <p>${greeting}</p>
+        <p>Thanks for signing up. Your account is ready.</p>
+        <p><a href="${appUrl}" style="display:inline-block;padding:10px 18px;
+           background:#111;color:#fff;border-radius:6px;text-decoration:none">
+           Get started</a></p>
+        <p style="color:#666;font-size:13px">— The Acme team</p>
+      </div>`,
+  };
+}
+
+async function sendWelcomeEmail({ to, name }) {
+  const { subject, text, html } = welcomeTemplate({
+    name,
+    appUrl: process.env.APP_URL,
+  });
+
+  return transporter.sendMail({
+    from: process.env.MAIL_FROM,
+    to,
+    subject,
+    text,
+    html,
+  });
+}
+
+module.exports = { transporter, sendWelcomeEmail };
+```
+
+### `src/users.js` — replace with your database
+
+```js
+const bcrypt = require('bcrypt');
+
+const usersByEmail = new Map();
+
+async function findByEmail(email) {
+  return usersByEmail.get(email) || null;
+}
+
+async function create({ email, password, name }) {
+  const passwordHash = await bcrypt.hash(password, 12);
+  const user = {
+    id: String(usersByEmail.size + 1),
+    email,
+    name: name || null,
+    passwordHash,
+    createdAt: new Date(),
+  };
+  usersByEmail.set(email, user);
+  return user;
+}
+
+module.exports = { findByEmail, create };
+```
+
+### `src/routes/auth.js`
+
+```js
+const express = require('express');
+const users = require('../users');
+const { sendWelcomeEmail } = require('../mailer');
+
+const router = express.Router();
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+router.post('/signup', async (req, res, next) => {
+  try {
+    const { email, password, name } = req.body || {};
+
+    if (typeof email !== 'string' || !EMAIL_RE.test(email.trim())) {
+      return res.status(400).json({ error: 'A valid email is required.' });
+    }
+    if (typeof password !== 'string' || password.length < 8) {
+      return res
+        .status(400)
+        .json({ error: 'Password must be at least 8 characters.' });
+    }
+
+    const normalizedEmail = email.trim().toLowerCase();
+
+    if (await users.findByEmail(normalizedEmail)) {
+      return res.status(409).json({ error: 'That email is already registered.' });
+    }
+
+    const user = await users.create({
+      email: normalizedEmail,
+      password,
+      name: typeof name === 'string' ? name.trim() : undefined,
+    });
+
+    // Fire-and-forget: a mail outage must not fail an otherwise-good signup.
+    sendWelcomeEmail({ to: user.email, name: user.name }).catch((err) => {
+      console.error('welcome email failed', { userId: user.id, err: err.message });
+    });
+
+    res.status(201).json({ id: user.id, email: user.email, name: user.name });
+  } catch (err) {
+    next(err);
+  }
+});
+
+module.exports = router;
+```
+
+### `src/app.js`
+
+```js
+const express = require('express');
+const authRoutes = require('./routes/auth');
+
+const app = express();
+app.use(express.json());
+app.use('/auth', authRoutes);
+
+app.use((err, _req, res, _next) => {
+  console.error(err);
+  res.status(500).json({ error: 'Internal server error.' });
+});
+
+module.exports = app;
+```
+
+### `src/server.js`
+
+```js
+require('dotenv').config();
+const app = require('./app');
+const { transporter } = require('./mailer');
+
+const port = Number(process.env.PORT || 3000);
+
+transporter
+  .verify()
+  .then(() => console.log('SMTP ready'))
+  .catch((err) => console.error('SMTP not reachable:', err.message));
+
+app.listen(port, () => console.log(`listening on :${port}`));
+```
+
+Test it:
+
+```bash
+curl -X POST localhost:3000/auth/signup \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"you@example.com","password":"hunter2hunter2","name":"Sam"}'
+```
+
+**On the fire-and-forget send:** awaiting `sendWelcomeEmail` inside the handler would mean an SMTP timeout turns a successful account creation into a 500, and the user retries into a 409 with an account they can't tell exists. So the account is committed first and the email is dispatched after, with failures logged.
+
+The tradeoff is that a failed welcome email is silently dropped — fine while you're getting started, but once signups matter, move the send onto a queue (BullMQ, or your provider's async API) so it retries. That also gets the SMTP round-trip out of the request path entirely.
+
+If you tell me your email provider and database, I'll rewrite these against their actual SDKs.

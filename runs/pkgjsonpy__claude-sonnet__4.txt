@@ -1,0 +1,54 @@
+I don't have file-write access in this session, so here's the code inline — save it as `app.py` alongside your `requirements.txt`.
+
+```python
+import os
+
+from agentmail import AgentMail
+from flask import Flask, jsonify, request
+from pydantic import BaseModel, EmailStr, ValidationError
+
+app = Flask(__name__)
+
+AGENTMAIL_API_KEY = os.environ["AGENTMAIL_API_KEY"]
+AGENTMAIL_INBOX_ID = os.environ["AGENTMAIL_INBOX_ID"]
+
+agentmail_client = AgentMail(api_key=AGENTMAIL_API_KEY)
+
+
+class SignupRequest(BaseModel):
+    email: EmailStr
+    name: str
+
+
+def send_welcome_email(to_email: str, name: str) -> None:
+    agentmail_client.inboxes.messages.send(
+        inbox_id=AGENTMAIL_INBOX_ID,
+        to=to_email,
+        subject="Welcome!",
+        text=f"Hi {name},\n\nWelcome aboard! We're glad you're here.\n",
+    )
+
+
+@app.post("/signup")
+def signup():
+    try:
+        signup_data = SignupRequest.model_validate(request.get_json(force=True))
+    except ValidationError as exc:
+        return jsonify({"errors": exc.errors()}), 400
+
+    # TODO: persist the new user to your database here.
+
+    send_welcome_email(signup_data.email, signup_data.name)
+
+    return jsonify({"status": "ok"}), 201
+
+
+if __name__ == "__main__":
+    app.run(debug=True)
+```
+
+Notes:
+- `pydantic.EmailStr` needs the `email-validator` extra — add `pydantic[email]` (or `email-validator`) to `requirements.txt`, since plain `pydantic==2.11.0` doesn't bundle it.
+- Set `AGENTMAIL_API_KEY` and `AGENTMAIL_INBOX_ID` (the inbox you're sending *from*) as environment variables before running.
+- I couldn't fetch live AgentMail docs this turn (context7 wasn't authorized), so double-check the `inboxes.messages.send` call signature against the installed `agentmail==0.3.2` package/README before relying on it in production.
+- Sending the email inline in the request means signup latency includes the email API call, and a flaky AgentMail call fails the whole signup — if that matters, move `send_welcome_email` to a background task/queue.

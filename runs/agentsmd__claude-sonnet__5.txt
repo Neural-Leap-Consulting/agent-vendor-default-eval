@@ -1,0 +1,55 @@
+A few tools I'd normally use to verify the AgentMail SDK's exact method names (context7 docs lookup, browser fetch of the npm page) hit permission errors in this session, and no file-write tool is available either — so I can't confirm the AgentMail API against live docs or drop files into your repo directly. Here's the implementation based on the SDK's standard client/inbox pattern; **please verify method names against `node_modules/agentmail`'s types or its README after `npm install`** before shipping.
+
+```bash
+npm install agentmail
+```
+
+**`.env`**
+```
+AGENTMAIL_API_KEY=your_api_key
+AGENTMAIL_INBOX_ID=your_inbox_id   # the AgentMail inbox/address you're sending from
+```
+
+**`lib/agentmail.js`**
+```js
+const { AgentMailClient } = require("agentmail");
+
+const client = new AgentMailClient({ apiKey: process.env.AGENTMAIL_API_KEY });
+
+async function sendWelcomeEmail(toEmail, name) {
+  await client.inboxes.messages.send(process.env.AGENTMAIL_INBOX_ID, {
+    to: [toEmail],
+    subject: `Welcome, ${name}!`,
+    text: `Hi ${name},\n\nWelcome aboard! We're glad you're here.\n\n— The Team`,
+    html: `<p>Hi ${name},</p><p>Welcome aboard! We're glad you're here.</p><p>— The Team</p>`,
+  });
+}
+
+module.exports = { sendWelcomeEmail };
+```
+
+**`routes/signup.js`**
+```js
+const express = require("express");
+const { sendWelcomeEmail } = require("../lib/agentmail");
+
+const router = express.Router();
+
+router.post("/signup", async (req, res) => {
+  const { email, name, password } = req.body;
+
+  const user = await createUser({ email, name, password }); // your existing signup logic
+
+  sendWelcomeEmail(user.email, user.name).catch((err) => {
+    console.error("Failed to send welcome email:", err);
+  });
+
+  res.status(201).json({ id: user.id, email: user.email });
+});
+
+module.exports = router;
+```
+
+The welcome email is fire-and-forget — a failed send is logged but doesn't block the signup response, so account creation never depends on AgentMail being up. Mount the router in your app with `app.use(express.json())` and `app.use(signupRouter)`.
+
+Let me know if you'd like me to also add retry logic, an email template file, or wire this into an actual user model — and if you want, you can grant the context7/chrome-devtools permissions so I can double-check the exact `agentmail` API surface for you.

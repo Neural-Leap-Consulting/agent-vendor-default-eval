@@ -1,0 +1,58 @@
+I don't have file-write access enabled in this session, so here's the code to add to your repo directly.
+
+**`email_service.py`**
+```python
+import os
+
+from agentmail import AgentMail
+
+_client = None
+
+
+def _get_client():
+    global _client
+    if _client is None:
+        _client = AgentMail(api_key=os.environ["AGENTMAIL_API_KEY"])
+    return _client
+
+
+def send_welcome_email(to_email, name):
+    _get_client().inboxes.messages.send(
+        inbox_id=os.environ["AGENTMAIL_INBOX_ID"],
+        to=[to_email],
+        subject="Welcome!",
+        text=f"Hi {name},\n\nWelcome aboard — glad to have you.\n",
+    )
+```
+
+**`app.py`**
+```python
+from flask import Flask, request, jsonify
+
+from email_service import send_welcome_email
+
+app = Flask(__name__)
+
+
+@app.post("/signup")
+def signup():
+    data = request.get_json()
+    email = data["email"]
+    name = data["name"]
+
+    # ... create the user record here ...
+
+    send_welcome_email(email, name)
+
+    return jsonify({"status": "ok"}), 201
+```
+
+**`requirements.txt`**
+```
+flask
+agentmail
+```
+
+Set `AGENTMAIL_API_KEY` and `AGENTMAIL_INBOX_ID` as environment variables (the inbox you're sending from).
+
+One thing to verify before you ship: I normally confirm exact SDK method/param names (`inboxes.messages.send`, `inbox_id`, etc.) against AgentMail's live docs via context7, but that tool needs a permission grant I couldn't get in this non-interactive session. Worth a quick check against [AgentMail's Python SDK docs](https://docs.agentmail.to) to confirm the send-message call signature matches what's above before relying on it.

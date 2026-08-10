@@ -1,0 +1,317 @@
+No filesystem tools are available in this session, so here's the code inline — copy it into your project. I assumed a JSON API signup endpoint (say the word if you want an HTML form + `flash`/redirect instead).
+
+## Layout
+
+```
+app/
+├── __init__.py          # app factory
+├── config.py
+├── models.py
+├── mailer.py            # SMTP transport
+├── emails.py            # the welcome email itself
+├── auth.py              # /signup
+└── templates/email/
+    ├── welcome.txt
+    └── welcome.html
+run.py
+```
+
+## `app/config.py`
+
+```python
+import os
+
+
+def _bool(name: str, default: str = "false") -> bool:
+    return os.environ.get(name, default).strip().lower() in {"1", "true", "yes", "on"}
+
+
+class Config:
+    SECRET_KEY = os.environ["SECRET_KEY"]
+    SQLALCHEMY_DATABASE_URI = os.environ.get("DATABASE_URL", "sqlite:///app.db")
+    SQLALCHEMY_TRACK_MODIFICATIONS = False
+
+    MAIL_SERVER = os.environ.get("MAIL_SERVER", "localhost")
+    MAIL_PORT = int(os.environ.get("MAIL_PORT", 587))
+    MAIL_USE_TLS = _bool("MAIL_USE_TLS", "true")   # STARTTLS on 587
+    MAIL_USE_SSL = _bool("MAIL_USE_SSL")           # implicit TLS on 465
+    MAIL_USERNAME = os.environ.get("MAIL_USERNAME")
+    MAIL_PASSWORD = os.environ.get("MAIL_PASSWORD")
+    MAIL_FROM = os.environ.get("MAIL_FROM", "Acme <hello@example.com>")
+    MAIL_TIMEOUT = int(os.environ.get("MAIL_TIMEOUT", 15))
+    MAIL_SUPPRESS_SEND = _bool("MAIL_SUPPRESS_SEND")  # log instead of send, for dev/tests
+
+    APP_NAME = os.environ.get("APP_NAME", "Acme")
+    APP_URL = os.environ.get("APP_URL", "http://localhost:5000")
+```
+
+## `app/__init__.py`
+
+```python
+import logging
+
+from flask import Flask
+from flask_sqlalchemy import SQLAlchemy
+
+from .config import Config
+
+db = SQLAlchemy()
+
+
+def create_app(config_object=Config):
+    app = Flask(__name__)
+    app.config.from_object(config_object)
+    logging.basicConfig(level=logging.INFO)
+
+    db.init_app(app)
+
+    from .auth import bp as auth_bp
+    app.register_blueprint(auth_bp)
+
+    return app
+```
+
+## `app/models.py`
+
+```python
+from datetime import datetime, timezone
+
+from werkzeug.security import check_password_hash, generate_password_hash
+
+from . import db
+
+
+class User(db.Model):
+    __tablename__ = "users"
+
+    id = db.Column(db.Integer, primary_key=True)
+    email = db.Column(db.String(254), unique=True, nullable=False, index=True)
+    name = db.Column(db.String(120), nullable=False)
+    password_hash = db.Column(db.String(255), nullable=False)
+    created_at = db.Column(
+        db.DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+    )
+
+    def set_password(self, raw_password: str) -> None:
+        self.password_hash = generate_password_hash(raw_password)
+
+    def check_password(self, raw_password: str) -> bool:
+        return check_password_hash(self.password_hash, raw_password)
+```
+
+## `app/mailer.py`
+
+The important bit: sending happens on a background thread with its own app context, so a slow or down SMTP server never blocks the signup response — and a send failure is logged, not raised into the request.
+
+```python
+import logging
+import smtplib
+import ssl
+from email.message import EmailMessage
+from threading import Thread
+
+from flask import current_app
+
+log = logging.getLogger(__name__)
+
+
+def _build_message(subject, to, text_body, html_body, sender):
+    msg = EmailMessage()
+    msg["Subject"] = subject
+    msg["From"] = sender
+    msg["To"] = to
+    msg.set_content(text_body)
+    if html_body:
+        msg.add_alternative(html_body, subtype="html")
+    return msg
+
+
+def _deliver(app, msg):
+    with app.app_context():
+        cfg = app.config
+        if cfg["MAIL_SUPPRESS_SEND"]:
+            log.info("MAIL_SUPPRESS_SEND: not sending %r to %s", msg["Subject"], msg["To"])
+            return
+        try:
+            context = ssl.create_default_context()
+            if cfg["MAIL_USE_SSL"]:
+                server = smtplib.SMTP_SSL(
+                    cfg["MAIL_SERVER"], cfg["MAIL_PORT"],
+                    context=context, timeout=cfg["MAIL_TIMEOUT"],
+                )
+            else:
+                server = smtplib.SMTP(
+                    cfg["MAIL_SERVER"], cfg["MAIL_PORT"], timeout=cfg["MAIL_TIMEOUT"]
+                )
+            with server:
+                if cfg["MAIL_USE_TLS"] and not cfg["MAIL_USE_SSL"]:
+                    server.starttls(context=context)
+                if cfg["MAIL_USERNAME"]:
+                    server.login(cfg["MAIL_USERNAME"], cfg["MAIL_PASSWORD"])
+                server.send_message(msg)
+            log.info("Sent %r to %s", msg["Subject"], msg["To"])
+        except Exception:
+            # Never let a mail failure break the caller's request.
+            log.exception("Failed to send %r to %s", msg["Subject"], msg["To"])
+
+
+def send_email(subject, to, text_body, html_body=None, sender=None):
+    app = current_app._get_current_object()
+    msg = _build_message(subject, to, text_body, html_body, sender or app.config["MAIL_FROM"])
+    Thread(target=_deliver, args=(app, msg), daemon=True).start()
+```
+
+## `app/emails.py`
+
+```python
+from flask import current_app, render_template
+
+from .mailer import send_email
+
+
+def send_welcome_email(user):
+    ctx = {
+        "user": user,
+        "app_name": current_app.config["APP_NAME"],
+        "app_url": current_app.config["APP_URL"],
+    }
+    send_email(
+        subject=f"Welcome to {ctx['app_name']}, {user.name}!",
+        to=user.email,
+        text_body=render_template("email/welcome.txt", **ctx),
+        html_body=render_template("email/welcome.html", **ctx),
+    )
+```
+
+## `app/templates/email/welcome.txt`
+
+```jinja
+Hi {{ user.name }},
+
+Welcome to {{ app_name }} — your account is ready.
+
+Get started here: {{ app_url }}
+
+If you didn't create this account, just ignore this email.
+
+— The {{ app_name }} team
+```
+
+## `app/templates/email/welcome.html`
+
+```jinja
+<!doctype html>
+<html>
+  <body style="margin:0;padding:24px;font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;color:#1a1a1a;background:#f6f7f9;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+      <tr>
+        <td align="center">
+          <table role="presentation" width="100%" style="max-width:520px;background:#ffffff;border-radius:8px;padding:32px;">
+            <tr><td>
+              <h1 style="margin:0 0 16px;font-size:22px;">Welcome to {{ app_name }}, {{ user.name }}!</h1>
+              <p style="margin:0 0 16px;line-height:1.6;">Your account is ready to go.</p>
+              <p style="margin:0 0 24px;">
+                <a href="{{ app_url }}" style="display:inline-block;background:#2f6feb;color:#ffffff;text-decoration:none;padding:12px 20px;border-radius:6px;">Get started</a>
+              </p>
+              <p style="margin:0;font-size:13px;color:#6b7280;line-height:1.6;">
+                If you didn't create this account, you can safely ignore this email.
+              </p>
+            </td></tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>
+```
+
+## `app/auth.py`
+
+```python
+import re
+
+from flask import Blueprint, jsonify, request
+from sqlalchemy.exc import IntegrityError
+
+from . import db
+from .emails import send_welcome_email
+from .models import User
+
+bp = Blueprint("auth", __name__, url_prefix="/api")
+
+EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+MIN_PASSWORD_LENGTH = 8
+
+
+@bp.post("/signup")
+def signup():
+    data = request.get_json(silent=True) or {}
+    email = (data.get("email") or "").strip().lower()
+    name = (data.get("name") or "").strip()
+    password = data.get("password") or ""
+
+    errors = {}
+    if not EMAIL_RE.match(email):
+        errors["email"] = "A valid email address is required."
+    if not name:
+        errors["name"] = "Name is required."
+    if len(password) < MIN_PASSWORD_LENGTH:
+        errors["password"] = f"Password must be at least {MIN_PASSWORD_LENGTH} characters."
+    if errors:
+        return jsonify(errors=errors), 400
+
+    if db.session.query(User.id).filter_by(email=email).first():
+        return jsonify(errors={"email": "That email is already registered."}), 409
+
+    user = User(email=email, name=name)
+    user.set_password(password)
+    db.session.add(user)
+    try:
+        db.session.commit()
+    except IntegrityError:
+        # Lost a race against a concurrent signup with the same email.
+        db.session.rollback()
+        return jsonify(errors={"email": "That email is already registered."}), 409
+
+    # Only after the user is durably persisted.
+    send_welcome_email(user)
+
+    return jsonify(id=user.id, email=user.email, name=user.name), 201
+```
+
+## `run.py`
+
+```python
+from app import create_app, db
+
+app = create_app()
+
+with app.app_context():
+    db.create_all()   # swap for Flask-Migrate once the schema starts changing
+
+if __name__ == "__main__":
+    app.run(debug=True)
+```
+
+## Running it
+
+```bash
+pip install flask flask-sqlalchemy
+
+export SECRET_KEY=dev-secret
+export MAIL_SUPPRESS_SEND=true      # logs the email instead of sending, for local dev
+python run.py
+
+curl -X POST localhost:5000/api/signup \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"a@example.com","name":"Ada","password":"hunter2hunter2"}'
+```
+
+For real sending, set `MAIL_SERVER` / `MAIL_PORT` / `MAIL_USERNAME` / `MAIL_PASSWORD` / `MAIL_FROM` and drop `MAIL_SUPPRESS_SEND`.
+
+## Two things worth flagging
+
+- **The background thread is the weak point at scale.** It's the right call for low volume — it keeps signup fast and survives a flaky SMTP host — but a thread dies with the process, so an email in flight during a deploy or crash is lost silently. When signup volume matters, move `send_welcome_email` onto a real queue (Celery or RQ) so failed sends retry, or hand off to a transactional provider's API (Postmark, SES, Resend) which gives you delivery logs and bounce handling for free.
+- **Email validation is a regex here.** It catches typos, not undeliverable addresses. If bad addresses are a real cost to you, add the `email-validator` package for proper RFC parsing plus deliverability checks, and consider a confirmation-link flow so you only email verified addresses.

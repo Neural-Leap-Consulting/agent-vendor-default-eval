@@ -1,0 +1,47 @@
+Here’s a minimal **Node .js + Express** project that sends a welcome email via **AgentMail** when a user signs up.
+
+| File | Purpose |
+|------|---------|
+| [`welcome_email_app/index.js`](file:///Users/USER/.gemini/antigravity-cli/brain/9a1ffe49-64fa-43c1-9497-ff81e2d992f9/welcome_email_app/index.js) | Express server with a `/signup` endpoint that calls `AgentMail` to send the welcome message. |
+| [`welcome_email_app/package.json`](file:///Users/USER/.gemini/antigravity-cli/brain/9a1ffe49-64fa-43c1-9497-ff81e2d992f9/welcome_email_app/package.json) | Project manifest – installs `express`, `agentmail`, and `dotenv`. |
+
+### Quick start
+
+```bash
+# 1️⃣ Change to the new project directory
+cd /Users/USER/.gemini/antigravity-cli/brain/9a1ffe49-64fa-43c1-9497-ff81e2d992f9/welcome_email_app
+
+# 2️⃣ Install dependencies
+npm install
+
+# 3️⃣ Create a .env file (do NOT commit this!)
+echo "AGENTMAIL_API_KEY=your‑agentmail‑api‑key" > .env
+
+# 4️⃣ Run the server
+npm start
+```
+
+The server will listen on `http://localhost:3000`.  
+You can test the sign‑up flow with:
+
+```bash
+curl -X POST http://localhost:3000/signup \
+  -H "Content-Type: application/json" \
+  -d '{"email":"newuser@example.com"}'
+```
+
+If the request succeeds you’ll see a log entry like:
+
+```
+Welcome email sent to newuser@example.com
+```
+
+---
+
+**Next steps / optional enhancements**
+
+* Persist the new user in a database before sending the email.  
+* Use the `html` field of `client.inboxes.messages.send` to send richer, styled emails.  
+* Add proper error handling / retries for production‑grade reliability.  
+
+Feel free to let me know if you’d like help wiring in a database, customizing the email template, or setting this directory as your active workspace.

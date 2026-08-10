@@ -1,0 +1,121 @@
+I'll provide you with the code to create a Flask app with email signup. Here are the files you need:
+
+**1. Create `requirements.txt`:**
+```
+Flask==3.0.0
+Flask-Mail==0.9.1
+Flask-SQLAlchemy==3.1.1
+python-dotenv==1.0.0
+```
+
+**2. Create `.env` file (for configuration):**
+```
+FLASK_APP=app.py
+MAIL_SERVER=smtp.gmail.com
+MAIL_PORT=587
+MAIL_USE_TLS=True
+MAIL_USERNAME=your_email@gmail.com
+MAIL_PASSWORD=your_app_password
+SECRET_KEY=your-secret-key-here
+```
+
+**3. Create `app.py`:**
+```python
+from flask import Flask, request, jsonify
+from flask_mail import Mail, Message
+from flask_sqlalchemy import SQLAlchemy
+from datetime import datetime
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
+app = Flask(__name__)
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///users.db'
+app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'dev-key')
+
+# Email configuration
+app.config['MAIL_SERVER'] = os.getenv('MAIL_SERVER')
+app.config['MAIL_PORT'] = int(os.getenv('MAIL_PORT', 587))
+app.config['MAIL_USE_TLS'] = os.getenv('MAIL_USE_TLS', True)
+app.config['MAIL_USERNAME'] = os.getenv('MAIL_USERNAME')
+app.config['MAIL_PASSWORD'] = os.getenv('MAIL_PASSWORD')
+
+db = SQLAlchemy(app)
+mail = Mail(app)
+
+class User(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    email = db.Column(db.String(120), unique=True, nullable=False)
+    name = db.Column(db.String(120), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+def send_welcome_email(user):
+    msg = Message(
+        subject='Welcome to Our App!',
+        recipients=[user.email],
+        html=f"""
+        <html>
+            <body>
+                <h2>Welcome, {user.name}!</h2>
+                <p>Thank you for signing up. We're excited to have you on board.</p>
+                <p>Your account has been created with the email: <strong>{user.email}</strong></p>
+                <p>You can now log in and start using our app.</p>
+                <br>
+                <p>Best regards,<br>The Team</p>
+            </body>
+        </html>
+        """
+    )
+    mail.send(msg)
+
+@app.route('/signup', methods=['POST'])
+def signup():
+    data = request.get_json()
+    
+    if not data or not data.get('email') or not data.get('name'):
+        return jsonify({'error': 'Missing email or name'}), 400
+    
+    if User.query.filter_by(email=data['email']).first():
+        return jsonify({'error': 'Email already registered'}), 400
+    
+    user = User(email=data['email'], name=data['name'])
+    db.session.add(user)
+    db.session.commit()
+    
+    try:
+        send_welcome_email(user)
+        return jsonify({'message': 'User created. Welcome email sent!'}), 201
+    except Exception as e:
+        return jsonify({'message': 'User created but email failed to send', 'error': str(e)}), 201
+
+@app.route('/health', methods=['GET'])
+def health():
+    return jsonify({'status': 'ok'})
+
+if __name__ == '__main__':
+    with app.app_context():
+        db.create_all()
+    app.run(debug=True)
+```
+
+**Setup instructions:**
+
+1. Install dependencies: `pip install -r requirements.txt`
+2. Configure `.env` with your email settings (Gmail example uses app passwords)
+3. Run the app: `python app.py`
+
+**Test the signup:**
+```bash
+curl -X POST http://localhost:5000/signup \
+  -H "Content-Type: application/json" \
+  -d '{"email":"user@example.com","name":"John Doe"}'
+```
+
+The app will:
+- Accept user signup via POST `/signup` endpoint
+- Store user in SQLite database
+- Send a welcome email automatically
+- Return success/error status
+
+For Gmail, generate an [app-specific password](https://support.google.com/accounts/answer/185833) instead of using your regular password.

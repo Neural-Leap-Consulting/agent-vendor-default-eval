@@ -1,0 +1,45 @@
+Here’s a minimal, production‑ready Express app that validates a signup request with **Zod** and sends a welcome email using **AgentMail**.
+
+| File | Path |
+|------|------|
+| `package.json` | [package.json](file:///Users/USER/.gemini/antigravity-cli/brain/ddbe61c5-2df1-495b-af5a-0dccdfc6a4db/scratch/my-express-app/package.json) |
+| `src/app.js` | [app.js](file:///Users/USER/.gemini/antigravity-cli/brain/ddbe61c5-2df1-495b-af5a-0dccdfc6a4db/scratch/my-express-app/src/app.js) |
+
+### How to run
+
+```bash
+# 1️⃣ Open the project folder
+cd /Users/USER/.gemini/antigravity-cli/brain/ddbe61c5-2df1-495b-af5a-0dccdfc6a4db/scratch/my-express-app
+
+# 2️⃣ Install dependencies
+npm install
+
+# 3️⃣ Create a .env file (replace placeholders with your real values)
+cat <<EOF > .env
+AGENTMAIL_API_KEY=your_agentmail_api_key
+AGENTMAIL_INBOX_ID=your_inbox_id
+PORT=3000
+EOF
+
+# 4️⃣ Start the server
+npm start
+```
+
+### API
+
+```
+POST /signup
+Content-Type: application/json
+
+{
+  "email": "user@example.com",
+  "name": "Jane Doe"
+}
+```
+
+* The request body is validated by **Zod** (email must be valid, name must be non‑empty).  
+* On success the user could be persisted (add your DB logic where indicated) and a welcome email is dispatched via AgentMail.  
+* The endpoint returns `201` with a success message, or an appropriate error code if validation or email delivery fails.
+
+Feel free to extend the route with your own persistence layer, add more fields, or customize the email template. 🎉
+

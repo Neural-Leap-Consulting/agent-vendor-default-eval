@@ -1,0 +1,74 @@
+File tools aren't available in this session, so here's the code inline — you can drop it into your project.
+
+**`services/mail.js`** — AgentMail client wrapper:
+
+```js
+const { AgentMail } = require('agentmail');
+
+const mailClient = new AgentMail({ apiKey: process.env.AGENTMAIL_API_KEY });
+
+async function sendWelcomeEmail(toEmail, name) {
+  await mailClient.inboxes.messages.send({
+    inboxId: process.env.AGENTMAIL_INBOX_ID,
+    to: [toEmail],
+    subject: 'Welcome!',
+    text: `Hi ${name},\n\nThanks for signing up. We're glad to have you.\n\n— The Team`,
+  });
+}
+
+module.exports = { sendWelcomeEmail };
+```
+
+**`routes/signup.js`** — signup route that sends the email after user creation:
+
+```js
+const express = require('express');
+const { sendWelcomeEmail } = require('../services/mail');
+// const { createUser } = require('../services/users'); // your existing user-creation logic
+
+const router = express.Router();
+
+router.post('/signup', async (req, res) => {
+  const { email, name } = req.body;
+
+  if (!email || !name) {
+    return res.status(400).json({ error: 'email and name are required' });
+  }
+
+  try {
+    // const user = await createUser({ email, name });
+    await sendWelcomeEmail(email, name);
+    res.status(201).json({ message: 'Signup successful, welcome email sent.' });
+  } catch (err) {
+    console.error('Signup failed:', err);
+    res.status(500).json({ error: 'Signup failed' });
+  }
+});
+
+module.exports = router;
+```
+
+**`app.js`** — wiring:
+
+```js
+const express = require('express');
+const signupRouter = require('./routes/signup');
+
+const app = express();
+app.use(express.json());
+app.use(signupRouter);
+
+app.listen(3000, () => console.log('Server running on port 3000'));
+```
+
+**`.env`**:
+
+```
+AGENTMAIL_API_KEY=your_api_key_here
+AGENTMAIL_INBOX_ID=onboarding@yourdomain.com
+```
+
+Notes:
+- Email send is `await`ed but wrapped in the same try/catch as user creation — if you'd rather not fail signup when the email provider hiccups, move the `sendWelcomeEmail` call outside the try/catch (or into a fire-and-forget with its own `.catch(console.error)`) so a mail outage doesn't block account creation.
+- Swap the commented `createUser` line in for your actual persistence logic.
+- Run `npm install agentmail express`.

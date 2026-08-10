@@ -1,0 +1,105 @@
+Here’s a minimal **Node .js + Express** project that sends a welcome email via **AgentMail** whenever a user signs up.
+
+### 1️⃣ Project layout (created in your scratch workspace)
+
+```
+welcome-email-app/
+├─ .env               ← environment variables
+├─ index.js           ← Express server & signup route
+├─ package.json       ← project metadata & dependencies
+```
+
+**Files you can open:**
+
+| File | Link |
+|------|------|
+| `package.json` | [package.json](file:///Users/USER/.gemini/antigravity-cli/brain/286d1685-0aaf-4300-955a-ebe654653ab8/welcome-email-app/package.json) |
+| `index.js` | [index.js](file:///Users/USER/.gemini/antigravity-cli/brain/286d1685-0aaf-4300-955a-ebe654653ab8/welcome-email-app/index.js) |
+| `.env` (example) | [\.env](file:///Users/USER/.gemini/antigravity-cli/brain/286d1685-0aaf-4300-955a-ebe654653ab8/welcome-email-app/.env) |
+
+---
+
+### 2️⃣ How it works
+
+```js
+import express from 'express';
+import dotenv from 'dotenv';
+import { AgentMail } from 'agentmail';
+
+dotenv.config();                         // Load .env values
+
+const app = express();
+app.use(express.json());                 // Parse JSON bodies
+
+// Initialise AgentMail client once
+const client = new AgentMail({
+  apiKey: process.env.AGENTMAIL_API_KEY,
+});
+
+app.post('/signup', async (req, res) => {
+  const { email } = req.body;
+  if (!email) {
+    return res.status(400).json({ error: 'Email is required' });
+  }
+
+  try {
+    await client.inboxes.messages.send({
+      inboxId: process.env.AGENTMAIL_INBOX_ID, // e.g. "onboarding@yourdomain.com"
+      to: [email],
+      subject: 'Welcome',
+      text: 'Thanks for signing up.',
+    });
+    res.status(200).json({ message: 'Welcome email sent' });
+  } catch (err) {
+    console.error('Failed to send welcome email:', err);
+    res.status(500).json({ error: 'Failed to send welcome email' });
+  }
+});
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log(`Server listening on port ${PORT}`));
+```
+
+* **POST `/signup`** expects a JSON payload like `{ "email": "user@example.com" }`.  
+* It calls `client.inboxes.messages.send` from the AgentMail SDK, using the inbox ID and API key defined in **.env**.  
+* Success → `200` with a friendly message; failure → `500` with an error.
+
+---
+
+### 3️⃣ Setup & run
+
+```bash
+# 1️⃣ Install dependencies (already done for you)
+npm install
+
+# 2️⃣ Create a .env file (example provided)
+cat > .env <<EOF
+AGENTMAIL_API_KEY=your_api_key_here
+AGENTMAIL_INBOX_ID=onboarding@yourdomain.com
+PORT=3000
+EOF
+
+# 3️⃣ Start the server
+npm start
+```
+
+Your server will now listen on `http://localhost:3000`.  
+Send a signup request, e.g.:
+
+```bash
+curl -X POST http://localhost:3000/signup \
+  -H "Content-Type: application/json" \
+  -d '{"email":"newuser@example.com"}'
+```
+
+You should receive a JSON response confirming the welcome email was sent, and the recipient will get the email via AgentMail.
+
+---
+
+### 4️⃣ Next steps (optional)
+
+* **Persist users** – hook the signup route into a database.  
+* **HTML form** – serve a simple front‑end that POSTs to `/signup`.  
+* **Custom email content** – add HTML body, templates, or personalization.  
+
+Let me know if you’d like to expand any part of this (e.g., adding a UI, integrating a DB, using a templating engine, etc.). Happy coding!

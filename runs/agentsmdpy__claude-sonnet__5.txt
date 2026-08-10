@@ -1,0 +1,57 @@
+I don't have file-write access in this session, so here's the code directly — copy it into your repo.
+
+**`app.py`**
+```python
+import os
+
+from flask import Flask, jsonify, request
+from agentmail import AgentMail
+
+app = Flask(__name__)
+
+agentmail_client = AgentMail(api_key=os.environ["AGENTMAIL_API_KEY"])
+
+# Inbox this app sends outbound mail from — create it in AgentMail beforehand.
+SENDER_INBOX_ID = os.environ["AGENTMAIL_INBOX_ID"]
+
+
+def send_welcome_email(to_email: str, name: str) -> None:
+    agentmail_client.inboxes.messages.send(
+        inbox_id=SENDER_INBOX_ID,
+        to=to_email,
+        subject="Welcome!",
+        text=f"Hi {name},\n\nWelcome aboard — we're glad you're here.",
+    )
+
+
+@app.post("/signup")
+def signup():
+    data = request.get_json(force=True)
+    email = data.get("email")
+    name = data.get("name", "")
+
+    if not email:
+        return jsonify(error="email is required"), 400
+
+    # TODO: create the user record here.
+
+    send_welcome_email(email, name)
+
+    return jsonify(status="ok"), 201
+
+
+if __name__ == "__main__":
+    app.run(debug=True)
+```
+
+**`requirements.txt`**
+```
+flask
+agentmail
+```
+
+Set `AGENTMAIL_API_KEY` and `AGENTMAIL_INBOX_ID` as environment variables.
+
+Two caveats:
+- I lost permission to hit the context7 docs lookup mid-task, so `client.inboxes.messages.send(...)` is from my training knowledge, not a live doc check — verify the exact method/argument names against the `agentmail` PyPI README before running.
+- This keeps `send_welcome_email` synchronous inside the request; for production you'd typically fire it via a background task/queue so a slow email API call doesn't block the signup response — say the word if you want that added.

@@ -1,0 +1,60 @@
+No file-editing tools are available in this session, so I can't write these to disk directly — here's the code to add to your project.
+
+**`mailer.js`** — wraps the AgentMail send call:
+
+```js
+import { AgentMailClient } from "agentmail";
+
+const client = new AgentMailClient({ apiKey: process.env.AGENTMAIL_API_KEY });
+
+export async function sendWelcomeEmail({ to, name }) {
+  await client.inboxes.messages.send(process.env.AGENTMAIL_INBOX_ID, {
+    to: [to],
+    subject: "Welcome!",
+    text: `Hi ${name},\n\nWelcome aboard — we're glad you're here.\n\n— The Team`,
+  });
+}
+```
+
+**`app.js`** — Express 5 signup route, validated with zod:
+
+```js
+import express from "express";
+import { z } from "zod";
+import { sendWelcomeEmail } from "./mailer.js";
+
+const app = express();
+app.use(express.json());
+
+const signupSchema = z.object({
+  email: z.string().email(),
+  name: z.string().min(1),
+});
+
+app.post("/signup", async (req, res) => {
+  const { email, name } = signupSchema.parse(req.body);
+
+  // TODO: persist the new user to your database here
+
+  await sendWelcomeEmail({ to: email, name });
+
+  res.status(201).json({ message: "Signed up" });
+});
+
+app.use((err, req, res, next) => {
+  if (err instanceof z.ZodError) {
+    return res.status(400).json({ error: err.issues });
+  }
+  console.error(err);
+  res.status(500).json({ error: "Internal server error" });
+});
+
+app.listen(3000, () => console.log("Listening on port 3000"));
+```
+
+Notes:
+- Express 5 forwards thrown/rejected errors from async handlers to error middleware automatically, so no `try/catch` wrapper is needed.
+- Requires two env vars: `AGENTMAIL_API_KEY` and `AGENTMAIL_INBOX_ID` (the inbox you're sending *from* — must already exist in your AgentMail account).
+- I couldn't verify `client.inboxes.messages.send(inboxId, {...})` against live docs for `agentmail@0.3.2` (context7 access wasn't authorized this session) — worth a quick check against the package's README/TypeScript types before shipping, in case the method name or payload shape differs slightly in that version.
+
+If you want, paste in your AgentMail inbox setup or actual signup flow and I'll wire this in more precisely.

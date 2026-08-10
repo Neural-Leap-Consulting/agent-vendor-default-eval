@@ -1,0 +1,74 @@
+No file-editing tools are available in this session, so here's the code to drop into your project directly.
+
+**`lib/agentmail.js`** — client setup
+```js
+const { AgentMail } = require('agentmail');
+
+const agentMail = new AgentMail({ apiKey: process.env.AGENTMAIL_API_KEY });
+
+module.exports = { agentMail };
+```
+
+**`lib/mail.js`** — welcome email helper
+```js
+const { agentMail } = require('./agentmail');
+
+const INBOX_ID = process.env.AGENTMAIL_INBOX_ID; // e.g. 'onboarding@yourdomain.com'
+
+async function sendWelcomeEmail(toEmail, name) {
+  await agentMail.inboxes.messages.send({
+    inboxId: INBOX_ID,
+    to: [toEmail],
+    subject: 'Welcome!',
+    text: `Hi ${name || 'there'},\n\nThanks for signing up.\n\n— The Team`,
+  });
+}
+
+module.exports = { sendWelcomeEmail };
+```
+
+**`routes/signup.js`** — wired into your signup route
+```js
+const express = require('express');
+const { sendWelcomeEmail } = require('../lib/mail');
+
+const router = express.Router();
+
+router.post('/signup', async (req, res) => {
+  const { email, name } = req.body;
+
+  if (!email) {
+    return res.status(400).json({ error: 'email is required' });
+  }
+
+  // TODO: create the user record here
+
+  try {
+    await sendWelcomeEmail(email, name);
+  } catch (err) {
+    console.error('Failed to send welcome email:', err);
+    // don't fail signup just because the email didn't send
+  }
+
+  res.status(201).json({ email, name });
+});
+
+module.exports = router;
+```
+
+**`app.js`** — mount the router
+```js
+const express = require('express');
+const signupRouter = require('./routes/signup');
+
+const app = express();
+app.use(express.json());
+app.use(signupRouter);
+
+module.exports = app;
+```
+
+Notes:
+- Set `AGENTMAIL_API_KEY` and `AGENTMAIL_INBOX_ID` in your `.env` (load with `dotenv` if you don't already).
+- The send is wrapped in try/catch so a mail-provider failure doesn't 500 the signup itself — adjust if you want signup to hard-fail on email errors.
+- Run `npm install agentmail` if you haven't already.

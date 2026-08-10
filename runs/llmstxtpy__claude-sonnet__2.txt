@@ -1,0 +1,39 @@
+```python
+import os
+from flask import Flask, request, jsonify
+from agentmail import AgentMail
+
+app = Flask(__name__)
+
+agentmail_client = AgentMail(api_key=os.environ["AGENTMAIL_API_KEY"])
+WELCOME_INBOX_ID = os.environ["AGENTMAIL_INBOX_ID"]  # e.g. onboarding@yourdomain.com
+
+
+def send_welcome_email(to_email):
+    agentmail_client.inboxes.messages.send(
+        inbox_id=WELCOME_INBOX_ID,
+        to=[to_email],
+        subject="Welcome",
+        text="Thanks for signing up.",
+    )
+
+
+@app.post("/signup")
+def signup():
+    data = request.get_json()
+    email = data["email"]
+
+    # ... create the user in your database here ...
+
+    send_welcome_email(email)
+
+    return jsonify({"status": "ok"}), 201
+
+
+if __name__ == "__main__":
+    app.run(debug=True)
+```
+
+Notes:
+- Requires `AGENTMAIL_API_KEY` and `AGENTMAIL_INBOX_ID` set in the environment (`pip install agentmail` too).
+- Send happens synchronously inline after user creation — if you want signup to succeed even when the email provider is briefly down, move `send_welcome_email` to a background task/queue instead of calling it inline.

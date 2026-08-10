@@ -1,0 +1,27 @@
+I have created a basic Node.js Express application that includes a signup endpoint and uses `nodemailer` to send a welcome email. 
+
+Since you don't have an active workspace set up right now, I saved the file in your scratch directory at: [`express-signup-email.js`](file:///Users/USER/.gemini/antigravity-cli/scratch/express-signup-email.js)
+
+Here is how the code works:
+1.  **Express Setup:** It sets up an Express server to parse incoming JSON requests.
+2.  **Nodemailer Transporter:** It creates a transporter using SMTP settings. You'll need to replace the placeholder `host`, `port`, `user`, and `pass` with your actual email service provider's credentials (like SendGrid, Mailgun, AWS SES, or Gmail).
+3.  **Signup Endpoint (`POST /signup`):**
+    *   It expects `email`, `name`, and `password` in the request body.
+    *   It validates that the required fields are present.
+    *   It sends an HTML and plain-text welcome email to the provided address.
+    *   *Note: I've added comments where you would typically hash the password and save the user to a database before sending the email.*
+
+### How to run it:
+
+If you want to run this in a new project, you can initialize one and install the dependencies:
+
+```bash
+mkdir my-express-app
+cd my-express-app
+npm init -y
+npm install express nodemailer
+```
+
+Then you can copy the code into an `index.js` file and run it with `node index.js`. 
+
+Let me know if you'd like me to set up a full project directory for you, or if you need help integrating a specific email provider!

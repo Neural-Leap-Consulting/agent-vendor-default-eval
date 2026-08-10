@@ -1,0 +1,134 @@
+Here’s a minimal **Node.js Express** project that sends a welcome email when a user signs up.
+
+### Project structure
+
+```
+welcome-email-app/
+├── package.json          ← dependencies & start script
+├── index.js              ← Express server + signup route
+└── .env.example          ← template for environment variables
+```
+
+### Files
+
+| File | Description |
+|------|-------------|
+| [package.json](file:///Users/USER/.gemini/antigravity-cli/brain/d2767cce-4a59-4880-8915-3ffab320716b/welcome-email-app/package.json) | Declares **express**, **nodemailer**, and **dotenv** as dependencies. |
+| [index.js](file:///Users/USER/.gemini/antigravity-cli/brain/d2767cce-4a59-4880-8915-3ffab320716b/welcome-email-app/index.js) | Sets up the `/signup` endpoint and sends the email. |
+| [.env.example](file:///Users/USER/.gemini/antigravity-cli/brain/d2767cce-4a59-4880-8915-3ffab320716b/welcome-email-app/.env.example) *(generated below)* | Shows which environment variables you need to provide. |
+
+#### `package.json` (already created)
+
+```json
+{
+  "name": "welcome-email-app",
+  "version": "1.0.0",
+  "description": "Express app that sends a welcome email on user sign‑up",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "nodemailer": "^6.9.15"
+  }
+}
+```
+
+#### `index.js` (already created)
+
+```js
+require('dotenv').config();
+const express = require('express');
+const nodemailer = require('nodemailer');
+
+const app = express();
+app.use(express.json());
+
+// Configure Nodemailer transporter using environment variables
+const transporter = nodemailer.createTransport({
+  host: process.env.SMTP_HOST,
+  port: parseInt(process.env.SMTP_PORT, 10),
+  secure: process.env.SMTP_SECURE === 'true', // true for 465, false for other ports
+  auth: {
+    user: process.env.SMTP_USER,
+    pass: process.env.SMTP_PASS,
+  },
+});
+
+app.post('/signup', async (req, res) => {
+  const { email, name } = req.body;
+  if (!email) {
+    return res.status(400).json({ error: 'Email required' });
+  }
+
+  const mailOptions = {
+    from: process.env.FROM_ADDRESS,
+    to: email,
+    subject: 'Welcome to Our Service!',
+    text: `Hi ${name || ''},
+
+Thank you for signing up. We're excited to have you on board!
+
+Best regards,
+The Team`,
+    // html: `<p>Hi ${name || ''}, …</p>` // optional HTML version
+  };
+
+  try {
+    await transporter.sendMail(mailOptions);
+    res.json({ message: 'Welcome email sent' });
+  } catch (err) {
+    console.error('Error sending email:', err);
+    res.status(500).json({ error: 'Failed to send welcome email' });
+  }
+});
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`Server listening on port ${PORT}`);
+});
+```
+
+#### `.env.example`
+
+Create a file named `.env` (copy from the example below) in the same folder and fill in your SMTP credentials:
+
+```
+# Server
+PORT=3000
+
+# Email (Nodemailer) settings
+SMTP_HOST=smtp.example.com
+SMTP_PORT=587
+SMTP_SECURE=false   # true for port 465
+SMTP_USER=your_smtp_user
+SMTP_PASS=your_smtp_password
+FROM_ADDRESS=no-reply@example.com
+```
+
+### Running the app
+
+```bash
+cd /Users/USER/.gemini/antigravity-cli/brain/d2767cce-4a59-4880-8915-3ffab320716b/welcome-email-app
+npm install          # installs express, nodemailer, dotenv
+cp .env.example .env # edit .env with your real credentials
+npm start
+```
+
+The server will listen on `http://localhost:3000`.  
+POST a JSON payload to `/signup`:
+
+```json
+{
+  "email": "newuser@example.com",
+  "name": "New User"
+}
+```
+
+The endpoint will queue a welcome email via the configured SMTP server.  
+
+Let me know if you need additional routes, HTML email templates, or deployment instructions!

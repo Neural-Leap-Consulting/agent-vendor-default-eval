@@ -1,0 +1,101 @@
+Here’s a minimal **Express** server that:
+
+* validates the signup payload with **Zod**  
+* sends a welcome email with **AgentMail**  
+* reads configuration (API key, inbox ID) from environment variables (you can use a `.env` file)
+
+```javascript
+// file:///Users/USER/.gemini/antigravity-cli/brain/040d02ef-e261-46c4-a3de-51af78cf5134/my-app/index.js
+// ------------------------------------------------------------
+// Express server with a /signup endpoint that sends a welcome email
+// ------------------------------------------------------------
+
+const express = require('express');
+const { AgentMail } = require('agentmail');
+const { z } = require('zod');
+require('dotenv').config();   // loads .env → process.env
+
+// Initialise Express
+const app = express();
+app.use(express.json());
+
+// Initialise AgentMail client
+const agentMail = new AgentMail({ apiKey: process.env.AGENTMAIL_API_KEY });
+
+// Zod schema for request validation
+const signupSchema = z.object({
+  name: z.string().min(1),
+  email: z.string().email(),
+});
+
+// Helper to build the email payload
+function buildWelcomeEmail({ name, email }) {
+  return {
+    inboxId: process.env.AGENTMAIL_INBOX_ID, // set this in .env
+    to: [email],
+    subject: 'Welcome to My App!',
+    text: `Hi ${name},
+
+Welcome to My App! We're excited to have you on board.
+
+Best regards,
+The My App Team`,
+    html: `<p>Hi ${name},</p>
+<p>Welcome to <strong>My App</strong>! We're excited to have you on board.</p>
+<p>Best regards,<br/>The My App Team</p>`,
+  };
+}
+
+// Signup endpoint
+app.post('/signup', async (req, res) => {
+  const result = signupSchema.safeParse(req.body);
+  if (!result.success) {
+    return res.status(400).json({ error: 'Invalid request', details: result.error.issues });
+  }
+
+  const { name, email } = result.data;
+
+  // TODO: Persist the new user in your database here
+
+  try {
+    const emailPayload = buildWelcomeEmail({ name, email });
+    const message = await agentMail.inboxes.messages.send(emailPayload);
+    console.log('Welcome email sent – message ID:', message.id);
+    res.status(201).json({ message: 'User signed up and welcome email sent.' });
+  } catch (err) {
+    console.error('Error sending welcome email:', err);
+    res.status(500).json({ error: 'Failed to send welcome email.' });
+  }
+});
+
+// Start the server
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`Server listening on port ${PORT}`);
+});
+```
+
+### Next steps
+
+1. **Install the required packages**  
+
+   ```bash
+   npm install express agentmail zod dotenv
+   ```
+
+2. **Create a `.env` file** in the project root (same folder as `index.js`) with your credentials:
+
+   ```dotenv
+   AGENTMAIL_API_KEY=your_agentmail_api_key
+   AGENTMAIL_INBOX_ID=your_inbox_id
+   PORT=3000   # optional
+   ```
+
+3. **Run the server**
+
+   ```bash
+   node index.js
+   ```
+
+   The app will listen on `http://localhost:3000`.  
+   POST a JSON body like `{ "name": "Alice", "email": "alice@example.com" }` to `/signup` and the welcome email will be dispatched.

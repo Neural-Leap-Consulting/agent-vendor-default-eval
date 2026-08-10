@@ -1,0 +1,71 @@
+File tools aren't available in this session, so here's the code directly.
+
+## Setup
+
+```bash
+pip install flask flask-mail
+```
+
+## `app.py`
+
+```python
+import os
+from threading import Thread
+
+from flask import Flask, request, jsonify
+from flask_mail import Mail, Message
+
+app = Flask(__name__)
+
+app.config["MAIL_SERVER"] = os.environ.get("MAIL_SERVER", "smtp.gmail.com")
+app.config["MAIL_PORT"] = int(os.environ.get("MAIL_PORT", 587))
+app.config["MAIL_USE_TLS"] = True
+app.config["MAIL_USERNAME"] = os.environ["MAIL_USERNAME"]
+app.config["MAIL_PASSWORD"] = os.environ["MAIL_PASSWORD"]
+app.config["MAIL_DEFAULT_SENDER"] = os.environ.get(
+    "MAIL_DEFAULT_SENDER", app.config["MAIL_USERNAME"]
+)
+
+mail = Mail(app)
+
+
+def send_async_email(app, msg):
+    with app.app_context():
+        mail.send(msg)
+
+
+def send_welcome_email(to_email, name):
+    msg = Message(
+        subject="Welcome!",
+        recipients=[to_email],
+        body=f"Hi {name},\n\nThanks for signing up. We're glad to have you!\n",
+    )
+    Thread(target=send_async_email, args=(app, msg)).start()
+
+
+@app.route("/signup", methods=["POST"])
+def signup():
+    data = request.get_json(silent=True) or {}
+    email = data.get("email")
+    name = data.get("name", "")
+
+    if not email:
+        return jsonify({"error": "email is required"}), 400
+
+    # TODO: create the user record here (DB insert, password hashing, etc.)
+
+    send_welcome_email(email, name or email)
+
+    return jsonify({"message": "signup successful"}), 201
+
+
+if __name__ == "__main__":
+    app.run(debug=True)
+```
+
+Notes:
+- Uses `flask-mail`, sent on a background thread so the signup response doesn't block on SMTP.
+- Reads credentials from env vars (`MAIL_USERNAME`, `MAIL_PASSWORD`) — don't hardcode them. For Gmail you'll need an app password, not your regular one.
+- Insert your actual user-creation logic where the `TODO` is; the email fires after that succeeds.
+
+Want me to wire this to a real DB/user model, or swap `flask-mail` for a transactional provider (SendGrid, SES, Postmark)?

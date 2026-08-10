@@ -1,0 +1,60 @@
+File tools aren't available in this session, so here's the code inline — copy it into your project.
+
+**`routes/signup.js`**
+```js
+import { Router } from 'express';
+import { AgentMail } from 'agentmail';
+
+const router = Router();
+const agentMail = new AgentMail({ apiKey: process.env.AGENTMAIL_API_KEY });
+
+router.post('/signup', async (req, res) => {
+  const { email, name } = req.body;
+
+  if (!email) {
+    return res.status(400).json({ error: 'email is required' });
+  }
+
+  // TODO: replace with your actual user-creation logic
+  // const user = await createUser({ email, name });
+
+  try {
+    await agentMail.inboxes.messages.send({
+      inboxId: process.env.AGENTMAIL_INBOX_ID,
+      to: [email],
+      subject: 'Welcome',
+      text: `Hi${name ? ` ${name}` : ''}, thanks for signing up.`,
+    });
+  } catch (err) {
+    // Don't fail the signup response just because the welcome email failed to send
+    console.error('Failed to send welcome email:', err);
+  }
+
+  res.status(201).json({ message: 'Signup successful' });
+});
+
+export default router;
+```
+
+**`app.js`**
+```js
+import express from 'express';
+import signupRouter from './routes/signup.js';
+
+const app = express();
+app.use(express.json());
+app.use(signupRouter);
+
+app.listen(3000, () => console.log('Server running on port 3000'));
+```
+
+**`.env`**
+```
+AGENTMAIL_API_KEY=your_api_key
+AGENTMAIL_INBOX_ID=onboarding@yourdomain.com
+```
+
+Notes:
+- `AGENTMAIL_INBOX_ID` should be the inbox you provisioned in AgentMail (matches `inboxId` in the send call from your `llms.txt`).
+- The email send is wrapped in try/catch so a transient AgentMail failure doesn't block account creation — adjust that tradeoff if you'd rather fail the signup on email failure.
+- Swap in your real user-persistence logic where the `TODO` is.

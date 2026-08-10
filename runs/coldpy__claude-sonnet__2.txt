@@ -1,0 +1,107 @@
+I don't have file-system or shell tools available in this session, so I'll give you the code directly to save into your project.
+
+## Setup
+
+```bash
+pip install Flask Flask-Mail Flask-SQLAlchemy python-dotenv
+```
+
+## `config.py`
+
+```python
+import os
+
+class Config:
+    SECRET_KEY = os.environ.get("SECRET_KEY", "dev-secret-key")
+
+    SQLALCHEMY_DATABASE_URI = os.environ.get("DATABASE_URL", "sqlite:///app.db")
+    SQLALCHEMY_TRACK_MODIFICATIONS = False
+
+    MAIL_SERVER = os.environ.get("MAIL_SERVER", "smtp.gmail.com")
+    MAIL_PORT = int(os.environ.get("MAIL_PORT", 587))
+    MAIL_USE_TLS = os.environ.get("MAIL_USE_TLS", "true").lower() == "true"
+    MAIL_USERNAME = os.environ.get("MAIL_USERNAME")
+    MAIL_PASSWORD = os.environ.get("MAIL_PASSWORD")
+    MAIL_DEFAULT_SENDER = os.environ.get("MAIL_DEFAULT_SENDER", MAIL_USERNAME)
+```
+
+Put real credentials in a `.env` file (and load it with `python-dotenv`), never hardcode them.
+
+## `app.py`
+
+```python
+import threading
+
+from flask import Flask, request, jsonify
+from flask_mail import Mail, Message
+from flask_sqlalchemy import SQLAlchemy
+from werkzeug.security import generate_password_hash
+
+from config import Config
+
+app = Flask(__name__)
+app.config.from_object(Config)
+
+db = SQLAlchemy(app)
+mail = Mail(app)
+
+
+class User(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    email = db.Column(db.String(255), unique=True, nullable=False)
+    password_hash = db.Column(db.String(255), nullable=False)
+
+
+def send_welcome_email(app, recipient_email):
+    """Runs in a background thread so signup doesn't block on SMTP."""
+    with app.app_context():
+        msg = Message(
+            subject="Welcome!",
+            recipients=[recipient_email],
+            body=f"Hi,\n\nThanks for signing up — we're glad to have you.",
+            html=f"<p>Hi,</p><p>Thanks for signing up — we're glad to have you.</p>",
+        )
+        try:
+            mail.send(msg)
+        except Exception as e:
+            app.logger.error(f"Failed to send welcome email to {recipient_email}: {e}")
+
+
+@app.route("/signup", methods=["POST"])
+def signup():
+    data = request.get_json(silent=True) or {}
+    email = data.get("email")
+    password = data.get("password")
+
+    if not email or not password:
+        return jsonify({"error": "email and password are required"}), 400
+
+    if User.query.filter_by(email=email).first():
+        return jsonify({"error": "email already registered"}), 409
+
+    user = User(email=email, password_hash=generate_password_hash(password))
+    db.session.add(user)
+    db.session.commit()
+
+    threading.Thread(
+        target=send_welcome_email,
+        args=(app, user.email),
+        daemon=True,
+    ).start()
+
+    return jsonify({"message": "signup successful", "user_id": user.id}), 201
+
+
+if __name__ == "__main__":
+    with app.app_context():
+        db.create_all()
+    app.run(debug=True)
+```
+
+Notes:
+
+- **Threading is a lightweight fix**, not production-grade. If you have Celery/RQ set up (or expect real signup volume), swap the `threading.Thread` call for a queued task — same `send_welcome_email` logic, just dispatched via `.delay()`/`.enqueue()` instead. I kept it to threading here since you didn't mention a task queue already being in place.
+- If using Gmail as the SMTP server, you need an [App Password](https://support.google.com/accounts/answer/185833), not your regular password, and `MAIL_USERNAME`/`MAIL_PASSWORD` must be set via environment variables.
+- Email failures are caught and logged so a broken SMTP config doesn't crash the request — signup already succeeded by that point.
+
+If you'd like, I can add HTML email templates via Jinja (`render_template`) or wire this to Celery instead of threading — let me know which fits your stack.

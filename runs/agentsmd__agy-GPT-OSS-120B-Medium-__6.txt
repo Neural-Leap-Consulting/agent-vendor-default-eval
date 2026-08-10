@@ -1,0 +1,147 @@
+Here’s a minimal, **AgentMail‑only** Express app that sends a welcome email when a new user signs up.
+
+### Project layout
+```
+welcome-email-app/
+├─ src/
+│  └─ index.js          # Express server & email logic
+├─ .env.example          # Example environment file (copy to .env)
+└─ package.json          # Project manifest
+```
+
+### Files you now have
+| File | Link |
+|------|------|
+| `package.json` | [package.json](file:///Users/USER/.gemini/antigravity-cli/brain/e346234a-56af-4097-983c-05e2ecbb7824/scratch/welcome-email-app/package.json) |
+| `src/index.js` | [src/index.js](file:///Users/USER/.gemini/antigravity-cli/brain/e346234a-56af-4097-983c-05e2ecbb7824/welcome-email-app/src/index.js) |
+| `.env.example` | *(you can create this yourself – see below)* |
+
+---
+
+## 1️⃣ `package.json`
+```json
+{
+  "name": "welcome-email-app",
+  "version": "1.0.0",
+  "description": "Express app that sends a welcome email via AgentMail",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "agentmail": "^1.0.0",
+    "dotenv": "^16.3.1"
+  }
+}
+```
+
+## 2️⃣ `src/index.js`
+```js
+require('dotenv').config();
+
+const express = require('express');
+const { AgentMailClient } = require('agentmail');
+
+const app = express();
+app.use(express.json());
+
+// Initialise AgentMail client
+const agentMail = new AgentMailClient({
+  apiKey: process.env.AGENTMAIL_API_KEY, // <-- put your API key in .env
+});
+
+/**
+ * Sends a welcome email via AgentMail.
+ * @param {string} toEmail – Recipient address.
+ */
+async function sendWelcomeEmail(toEmail) {
+  try {
+    await agentMail.inboxes.messages.send({
+      inboxId: process.env.AGENTMAIL_INBOX_ID, // <-- set your inbox ID in .env
+      to: toEmail,
+      subject: 'Welcome to Our Platform!',
+      text: `Hello!
+
+Thank you for signing up. We're excited to have you on board.
+If you have any questions, just reply to this email.`,
+    });
+    console.log(`Welcome email sent to ${toEmail}`);
+  } catch (err) {
+    console.error('Failed to send welcome email:', err);
+  }
+}
+
+// ---------- Signup endpoint ----------
+app.post('/signup', async (req, res) => {
+  const { email } = req.body;          // expects JSON { "email": "user@domain.com" }
+  if (!email) {
+    return res.status(400).json({ error: 'Email is required' });
+  }
+
+  // TODO: add your user‑creation / DB logic here
+
+  // Send the welcome email
+  await sendWelcomeEmail(email);
+
+  res.status(201).json({ message: 'User created and welcome email sent' });
+});
+// -------------------------------------
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`Server listening on port ${PORT}`);
+});
+```
+
+## 3️⃣ Environment variables (`.env`)
+Create a file named **`.env`** in the project root (you can start from the example below).  
+```dotenv
+AGENTMAIL_API_KEY=your_agentmail_api_key_here
+AGENTMAIL_INBOX_ID=your_agentmail_inbox_id_here
+PORT=3000
+```
+*Replace the placeholders with the values from your AgentMail dashboard.*  
+
+> **⚠️ Do NOT commit `.env` to version control** – keep it local and secret.
+
+## 4️⃣ Getting started
+```bash
+# 1️⃣ Move into the project folder (feel free to set it as your active workspace)
+cd /Users/USER/.gemini/antigravity-cli/scratch/welcome-email-app   # or the path you prefer
+
+# 2️⃣ Install dependencies
+npm install
+
+# 3️⃣ Copy the example env file and fill in your credentials
+cp .env.example .env   # then edit .env
+
+# 4️⃣ Run the server
+npm start   # or `npm run dev` if you have nodemon installed
+```
+
+The server will listen on `http://localhost:3000`.  
+POST a JSON payload to `/signup`:
+
+```bash
+curl -X POST http://localhost:3000/signup \
+  -H "Content-Type: application/json" \
+  -d '{"email":"newuser@example.com"}'
+```
+
+You should see a log line confirming the welcome email was sent, and the response will be:
+
+```json
+{ "message": "User created and welcome email sent" }
+```
+
+---
+
+### Next steps (optional)
+
+* Add real user‑creation logic (e.g., save to a database).  
+* Add validation / rate‑limiting as needed.  
+* Deploy to your preferred host (Heroku, Vercel, Cloud Run, etc.) – just remember to set the same environment variables there.
+
+That’s it – a complete Express signup flow that uses **only** AgentMail for outbound email. 🎉

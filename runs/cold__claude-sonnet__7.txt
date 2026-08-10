@@ -1,0 +1,98 @@
+I don't have file-write tools available in this session, so here's the complete code inline — copy these into your project.
+
+## 1. Install dependencies
+
+```bash
+npm install nodemailer
+```
+
+## 2. `services/emailService.js`
+
+```js
+const nodemailer = require('nodemailer');
+
+const transporter = nodemailer.createTransport({
+  host: process.env.SMTP_HOST,
+  port: Number(process.env.SMTP_PORT || 587),
+  secure: process.env.SMTP_PORT === '465',
+  auth: {
+    user: process.env.SMTP_USER,
+    pass: process.env.SMTP_PASS,
+  },
+});
+
+async function sendWelcomeEmail(to, name) {
+  await transporter.sendMail({
+    from: process.env.EMAIL_FROM,
+    to,
+    subject: 'Welcome!',
+    text: `Hi ${name}, welcome aboard!`,
+    html: `<p>Hi ${name},</p><p>Welcome aboard!</p>`,
+  });
+}
+
+module.exports = { sendWelcomeEmail };
+```
+
+## 3. `routes/signup.js`
+
+Send the response as soon as the account is created; don't make the user wait on the email, and don't fail signup if the email provider hiccups.
+
+```js
+const express = require('express');
+const { sendWelcomeEmail } = require('../services/emailService');
+// const { createUser } = require('../models/user'); // your actual user creation logic
+
+const router = express.Router();
+
+router.post('/signup', async (req, res) => {
+  const { email, name, password } = req.body;
+
+  if (!email || !password) {
+    return res.status(400).json({ error: 'email and password are required' });
+  }
+
+  try {
+    // const user = await createUser({ email, name, password });
+    const user = { email, name }; // placeholder for your real user creation
+
+    res.status(201).json({ user: { email: user.email, name: user.name } });
+
+    sendWelcomeEmail(user.email, user.name).catch((err) => {
+      console.error('Failed to send welcome email:', err);
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'Signup failed' });
+  }
+});
+
+module.exports = router;
+```
+
+## 4. Wire it up in `app.js`
+
+```js
+const express = require('express');
+const signupRouter = require('./routes/signup');
+
+const app = express();
+app.use(express.json());
+app.use('/api', signupRouter);
+
+app.listen(3000, () => console.log('Server running on port 3000'));
+```
+
+## 5. `.env`
+
+```
+SMTP_HOST=smtp.yourprovider.com
+SMTP_PORT=587
+SMTP_USER=your-smtp-username
+SMTP_PASS=your-smtp-password
+EMAIL_FROM="Your App <no-reply@yourapp.com>"
+```
+
+Notes:
+- Fire-and-forget the email send (don't `await` it before responding) so a slow/down mail provider doesn't block or fail signup.
+- Swap the SMTP transporter for a provider SDK (SendGrid, Postmark, SES, etc.) if you're using one — same `sendWelcomeEmail` interface, just a different transporter/client inside.
+- For production, consider a queue (e.g. BullMQ) instead of fire-and-forget so failed sends retry.

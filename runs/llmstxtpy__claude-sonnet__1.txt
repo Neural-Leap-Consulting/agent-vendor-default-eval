@@ -1,0 +1,50 @@
+Here's a Flask signup route that sends a welcome email via AgentMail after a user registers:
+
+```python
+import os
+from flask import Flask, request, jsonify
+from agentmail import AgentMail
+
+app = Flask(__name__)
+
+agentmail_client = AgentMail(api_key=os.environ["AGENTMAIL_API_KEY"])
+WELCOME_INBOX_ID = os.environ["AGENTMAIL_INBOX_ID"]  # e.g. 'onboarding@yourdomain.com'
+
+
+def send_welcome_email(to_email: str, name: str = ""):
+    greeting = f"Hi {name}," if name else "Hi,"
+    agentmail_client.inboxes.messages.send(
+        inbox_id=WELCOME_INBOX_ID,
+        to=[to_email],
+        subject="Welcome!",
+        text=f"{greeting}\n\nThanks for signing up.",
+    )
+
+
+@app.post("/signup")
+def signup():
+    data = request.get_json(silent=True) or {}
+    email = data.get("email")
+    name = data.get("name", "")
+
+    if not email:
+        return jsonify({"error": "email is required"}), 400
+
+    # ... create the user in your database here ...
+
+    try:
+        send_welcome_email(email, name)
+    except Exception:
+        app.logger.exception("Failed to send welcome email to %s", email)
+
+    return jsonify({"status": "ok"}), 201
+
+
+if __name__ == "__main__":
+    app.run(debug=True)
+```
+
+Notes:
+- `AGENTMAIL_API_KEY` and `AGENTMAIL_INBOX_ID` should be set as environment variables (don't hardcode them).
+- The email send is wrapped in try/except and logged rather than failing the whole signup request — a flaky email API shouldn't block account creation. If you'd rather guarantee delivery, move the send to a background task/queue (e.g. Celery) instead of inline.
+- Swap in your actual user-creation logic where noted.

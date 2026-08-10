@@ -1,0 +1,223 @@
+Here is a complete, production-ready implementation for sending welcome emails on user signup in a Node.js Express application using **Nodemailer**.
+
+The application has been created in your scratch directory at [`/Users/USER/.gemini/antigravity-cli/scratch/express-welcome-email`](file:///Users/USER/.gemini/antigravity-cli/scratch/express-welcome-email). *(It is recommended to set this directory as your active workspace).*
+
+---
+
+### Project Structure
+
+```
+express-welcome-email/
+├── package.json
+├── .env.example
+├── server.js
+├── controllers/
+│   └── authController.js
+└── services/
+    └── emailService.js
+```
+
+---
+
+### Code Implementation
+
+#### 1. Email Service ([`services/emailService.js`](file:///Users/USER/.gemini/antigravity-cli/scratch/express-welcome-email/services/emailService.js))
+Uses **Nodemailer**. If SMTP credentials are provided in `.env`, it connects to your provider (SendGrid, Mailgun, AWS SES, Gmail, etc.). If omitted during local development, it automatically provisions an **Ethereal** test account and outputs a preview link to the console for instant testing.
+
+```javascript
+import nodemailer from 'nodemailer';
+
+let transporter = null;
+
+async function getTransporter() {
+  if (transporter) return transporter;
+
+  // Use configured SMTP settings if available
+  if (process.env.SMTP_HOST && process.env.SMTP_USER) {
+    transporter = nodemailer.createTransport({
+      host: process.env.SMTP_HOST,
+      port: Number(process.env.SMTP_PORT) || 587,
+      secure: process.env.SMTP_SECURE === 'true',
+      auth: {
+        user: process.env.SMTP_USER,
+        pass: process.env.SMTP_PASS,
+      },
+    });
+  } else {
+    // Fallback: Auto-generate Ethereal test account for instant local dev
+    console.log('⚠️ No SMTP configuration found. Creating Ethereal test account...');
+    const testAccount = await nodemailer.createTestAccount();
+    transporter = nodemailer.createTransport({
+      host: 'smtp.ethereal.email',
+      port: 587,
+      secure: false,
+      auth: {
+        user: testAccount.user,
+        pass: testAccount.pass,
+      },
+    });
+    console.log('✅ Ethereal test account created! Preview URLs will log to console.');
+  }
+
+  return transporter;
+}
+
+export async function sendWelcomeEmail(userEmail, userName) {
+  const mailTransporter = await getTransporter();
+
+  const senderName = process.env.SENDER_NAME || 'My App Team';
+  const senderEmail = process.env.SENDER_EMAIL || 'no-reply@myapp.com';
+  const appUrl = process.env.APP_URL || 'http://localhost:3000';
+
+  const htmlContent = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="utf-8">
+      <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f4f7f6; margin: 0; padding: 0; }
+        .container { max-width: 600px; margin: 40px auto; background: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 15px rgba(0,0,0,0.05); }
+        .header { background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%); padding: 30px; text-align: center; color: #ffffff; }
+        .header h1 { margin: 0; font-size: 26px; font-weight: 600; }
+        .content { padding: 32px; color: #334155; line-height: 1.6; }
+        .content h2 { color: #1e293b; margin-top: 0; }
+        .btn { display: inline-block; padding: 12px 28px; background-color: #4f46e5; color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: 600; margin-top: 20px; }
+        .footer { background: #f8fafc; padding: 20px; text-align: center; font-size: 13px; color: #94a3b8; border-top: 1px solid #e2e8f0; }
+      </style>
+    </head>
+    <body>
+      <div class="container">
+        <div class="header">
+          <h1>Welcome aboard! 👋</h1>
+        </div>
+        <div class="content">
+          <h2>Hi ${userName || 'there'},</h2>
+          <p>Thank you for signing up! We're thrilled to have you with us.</p>
+          <p>Your account has been successfully created. You can now log in and start exploring.</p>
+          <a href="${appUrl}/login" class="btn">Get Started</a>
+        </div>
+        <div class="footer">
+          <p>&copy; ${new Date().getFullYear()} ${senderName}. All rights reserved.</p>
+        </div>
+      </div>
+    </body>
+    </html>
+  `;
+
+  const mailOptions = {
+    from: `"${senderName}" <${senderEmail}>`,
+    to: userEmail,
+    subject: `Welcome to ${senderName}! 🎉`,
+    text: `Hi ${userName || 'there'},\n\nWelcome to ${senderName}! We're excited to have you on board.`,
+    html: htmlContent,
+  };
+
+  const info = await mailTransporter.sendMail(mailOptions);
+  console.log(`📩 Welcome email sent to ${userEmail}. ID: ${info.messageId}`);
+
+  const previewUrl = nodemailer.getTestMessageUrl(info);
+  if (previewUrl) {
+    console.log(`🔗 Preview Email: ${previewUrl}`);
+  }
+
+  return info;
+}
+```
+
+---
+
+#### 2. Auth Controller ([`controllers/authController.js`](file:///Users/USER/.gemini/antigravity-cli/scratch/express-welcome-email/controllers/authController.js))
+Handles validation, password hashing (`bcryptjs`), user persistence, and non-blocking background dispatch of the welcome email.
+
+```javascript
+import bcrypt from 'bcryptjs';
+import { sendWelcomeEmail } from '../services/emailService.js';
+
+const users = []; // Replace with database model (e.g. Prisma, Mongoose, PG)
+
+export async function handleSignup(req, res) {
+  try {
+    const { name, email, password } = req.body;
+
+    if (!email || !password) {
+      return res.status(400).json({ error: 'Email and password are required.' });
+    }
+
+    const existingUser = users.find((u) => u.email.toLowerCase() === email.toLowerCase());
+    if (existingUser) {
+      return res.status(409).json({ error: 'User with this email already exists.' });
+    }
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+    const newUser = {
+      id: Date.now().toString(),
+      name: name || 'User',
+      email: email.toLowerCase(),
+      password: hashedPassword,
+      createdAt: new Date(),
+    };
+    users.push(newUser);
+
+    // Send email asynchronously in background to keep API response fast
+    sendWelcomeEmail(newUser.email, newUser.name).catch((err) => {
+      console.error('Failed to send welcome email:', err);
+    });
+
+    return res.status(201).json({
+      message: 'User registered successfully!',
+      user: { id: newUser.id, name: newUser.name, email: newUser.email },
+    });
+  } catch (error) {
+    console.error('Error during signup:', error);
+    return res.status(500).json({ error: 'Internal server error.' });
+  }
+}
+```
+
+---
+
+#### 3. Express Entry Point ([`server.js`](file:///Users/USER/.gemini/antigravity-cli/scratch/express-welcome-email/server.js))
+
+```javascript
+import express from 'express';
+import dotenv from 'dotenv';
+import { handleSignup } from './controllers/authController.js';
+
+dotenv.config();
+
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+app.use(express.json());
+
+// Signup endpoint
+app.post('/api/signup', handleSignup);
+
+app.listen(PORT, () => {
+  console.log(`🚀 Express server running on http://localhost:${PORT}`);
+});
+```
+
+---
+
+### How to Run & Test
+
+1. **Install dependencies:**
+   ```bash
+   npm install
+   ```
+
+2. **Start the server:**
+   ```bash
+   npm start
+   ```
+
+3. **Send a signup request (e.g. using `curl`):**
+   ```bash
+   curl -X POST http://localhost:3000/api/signup \
+     -H "Content-Type: application/json" \
+     -d '{"name": "Alice", "email": "alice@example.com", "password": "securepassword123"}'
+   ```
+
+4. **View your test email:**
+   In local development mode without `.env` credentials, check your server output terminal. You will see a clickable **Ethereal Email Preview URL** where you can render the HTML email live in your browser.

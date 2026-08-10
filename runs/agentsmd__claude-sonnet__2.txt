@@ -1,0 +1,117 @@
+Two notes before the code: this session isn't actually inside your repo (working dir is an empty temp folder, not a git repo), and I don't have filesystem/doc-fetch tools available right now, so I can't write files directly or pull live AgentMail SDK docs to double-check exact method signatures — I'm going from the published `agentmail` npm package shape. Verify against `node_modules/agentmail`'s README once installed, particularly `inboxes.messages.send`.
+
+Design: one AgentMail inbox acts as your "from" sender (created once, e.g. via the AgentMail dashboard or a one-time script), not one per signup. Signup doesn't fail if the welcome email fails to send — it logs and still succeeds.
+
+**package.json** (relevant deps)
+```json
+{
+  "dependencies": {
+    "agentmail": "^0.1.0",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2"
+  }
+}
+```
+
+**.env.example**
+```
+PORT=3000
+AGENTMAIL_API_KEY=
+AGENTMAIL_FROM_INBOX_ID=
+```
+
+**server.js**
+```js
+require('dotenv').config();
+const app = require('./src/app');
+
+const port = process.env.PORT || 3000;
+app.listen(port, () => {
+  console.log(`Server listening on port ${port}`);
+});
+```
+
+**src/app.js**
+```js
+const express = require('express');
+const authRouter = require('./routes/auth');
+
+const app = express();
+app.use(express.json());
+app.use('/auth', authRouter);
+
+module.exports = app;
+```
+
+**src/lib/agentmailClient.js**
+```js
+const { AgentMailClient } = require('agentmail');
+
+module.exports = new AgentMailClient({
+  apiKey: process.env.AGENTMAIL_API_KEY,
+});
+```
+
+**src/templates/welcomeEmail.js**
+```js
+function welcomeEmail({ name }) {
+  const greeting = name ? `Hi ${name},` : 'Hi,';
+
+  return {
+    subject: 'Welcome aboard!',
+    text: `${greeting}\n\nThanks for signing up. We're glad you're here.`,
+    html: `<p>${greeting}</p><p>Thanks for signing up. We're glad you're here.</p>`,
+  };
+}
+
+module.exports = { welcomeEmail };
+```
+
+**src/services/emailService.js**
+```js
+const agentmail = require('../lib/agentmailClient');
+const { welcomeEmail } = require('../templates/welcomeEmail');
+
+const FROM_INBOX_ID = process.env.AGENTMAIL_FROM_INBOX_ID;
+
+async function sendWelcomeEmail({ email, name }) {
+  const { subject, text, html } = welcomeEmail({ name });
+
+  return agentmail.inboxes.messages.send(FROM_INBOX_ID, {
+    to: [email],
+    subject,
+    text,
+    html,
+  });
+}
+
+module.exports = { sendWelcomeEmail };
+```
+
+**src/routes/auth.js**
+```js
+const { Router } = require('express');
+const { sendWelcomeEmail } = require('../services/emailService');
+
+const router = Router();
+
+router.post('/signup', async (req, res) => {
+  const { email, name } = req.body;
+
+  if (!email) {
+    return res.status(400).json({ error: 'email is required' });
+  }
+
+  try {
+    await sendWelcomeEmail({ email, name });
+  } catch (err) {
+    console.error('Failed to send welcome email', err);
+  }
+
+  res.status(201).json({ message: 'Signed up' });
+});
+
+module.exports = router;
+```
+
+This is the email-sending piece only — no user persistence/auth (password hashing, DB, sessions) is implemented, since you didn't ask for that. Want me to add it, or is `/auth/signup` meant to plug into signup logic you already have?

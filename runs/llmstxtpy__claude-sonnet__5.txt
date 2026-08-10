@@ -1,0 +1,44 @@
+No file-editing tools are available in this session, so here's the code directly — drop this into your Flask app (e.g. `app.py`):
+
+```python
+import os
+
+from flask import Flask, request, jsonify
+from agentmail import AgentMail
+
+app = Flask(__name__)
+
+agentmail_client = AgentMail(api_key=os.environ["AGENTMAIL_API_KEY"])
+ONBOARDING_INBOX_ID = os.environ["AGENTMAIL_ONBOARDING_INBOX_ID"]  # e.g. onboarding@yourdomain.com
+
+
+def send_welcome_email(to_address):
+    agentmail_client.inboxes.messages.send(
+        inbox_id=ONBOARDING_INBOX_ID,
+        to=[to_address],
+        subject="Welcome",
+        text="Thanks for signing up.",
+    )
+
+
+@app.post("/signup")
+def signup():
+    data = request.get_json(silent=True) or {}
+    email = data.get("email")
+    if not email:
+        return jsonify(error="email is required"), 400
+
+    # ... create the user record here ...
+
+    send_welcome_email(email)
+
+    return jsonify(status="ok"), 201
+
+
+if __name__ == "__main__":
+    app.run(debug=True)
+```
+
+Notes:
+- Set `AGENTMAIL_API_KEY` and `AGENTMAIL_ONBOARDING_INBOX_ID` as environment variables rather than hardcoding them.
+- `send_welcome_email` is separated out so you can call it wherever your actual user-creation logic lives, or wrap it in a try/except if you don't want a failed email to block signup.

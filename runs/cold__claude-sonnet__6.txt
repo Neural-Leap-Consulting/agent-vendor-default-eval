@@ -1,0 +1,92 @@
+This environment doesn't have file-editing tools available in this session, so I'll give you the code directly to add to your project.
+
+**Install dependencies:**
+```bash
+npm install express nodemailer dotenv express-async-errors
+```
+
+**`.env`**
+```
+SMTP_HOST=smtp.example.com
+SMTP_PORT=587
+SMTP_USER=your-smtp-username
+SMTP_PASS=your-smtp-password
+EMAIL_FROM="Your App <no-reply@yourapp.com>"
+```
+
+**`src/mailer.js`**
+```js
+const nodemailer = require('nodemailer');
+
+const transporter = nodemailer.createTransport({
+  host: process.env.SMTP_HOST,
+  port: Number(process.env.SMTP_PORT),
+  secure: Number(process.env.SMTP_PORT) === 465,
+  auth: {
+    user: process.env.SMTP_USER,
+    pass: process.env.SMTP_PASS,
+  },
+});
+
+async function sendWelcomeEmail(user) {
+  await transporter.sendMail({
+    from: process.env.EMAIL_FROM,
+    to: user.email,
+    subject: 'Welcome!',
+    text: `Hi ${user.name}, welcome aboard!`,
+    html: `<p>Hi ${user.name}, welcome aboard!</p>`,
+  });
+}
+
+module.exports = { sendWelcomeEmail };
+```
+
+**`src/routes/signup.js`**
+```js
+const express = require('express');
+const { sendWelcomeEmail } = require('../mailer');
+const { createUser } = require('../users'); // your existing user creation logic
+
+const router = express.Router();
+
+router.post('/signup', async (req, res) => {
+  const { email, name, password } = req.body;
+
+  const user = await createUser({ email, name, password });
+
+  // Fire-and-forget: don't block the signup response on email delivery.
+  sendWelcomeEmail(user).catch((err) => {
+    console.error(`Failed to send welcome email to ${user.email}:`, err);
+  });
+
+  res.status(201).json({ id: user.id, email: user.email, name: user.name });
+});
+
+module.exports = router;
+```
+
+**`src/app.js`**
+```js
+require('dotenv').config();
+require('express-async-errors');
+const express = require('express');
+const signupRouter = require('./routes/signup');
+
+const app = express();
+app.use(express.json());
+app.use('/api', signupRouter);
+
+app.use((err, req, res, next) => {
+  console.error(err);
+  res.status(500).json({ error: 'Internal server error' });
+});
+
+module.exports = app;
+```
+
+Notes:
+- The email send is fire-and-forget so a slow/down SMTP server doesn't delay the signup response — failures are logged, not surfaced to the user.
+- For production reliability (retries, not losing emails on process crash), swap the fire-and-forget call for a job queue (e.g. BullMQ) instead of calling `sendWelcomeEmail` directly.
+- Any SMTP provider works with Nodemailer (SendGrid, SES, Postmark, Mailgun, etc.) — just change the transport config.
+
+Want me to add the job-queue version, or wire this into your actual existing signup/user code if you paste it in?

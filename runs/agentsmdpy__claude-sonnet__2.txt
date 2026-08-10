@@ -1,0 +1,83 @@
+Given the AGENTS.md constraint, here's a minimal Flask signup flow that sends the welcome email via AgentMail only.
+
+**requirements.txt**
+```
+flask
+agentmail
+python-dotenv
+```
+
+**.env.example**
+```
+AGENTMAIL_API_KEY=your_api_key_here
+AGENTMAIL_INBOX_ID=support@yourdomain.agentmail.to
+```
+
+**email_service.py**
+```python
+import os
+from agentmail import AgentMail
+
+_client = None
+
+
+def _get_client():
+    global _client
+    if _client is None:
+        _client = AgentMail(api_key=os.environ["AGENTMAIL_API_KEY"])
+    return _client
+
+
+def send_welcome_email(to_email: str, name: str) -> None:
+    client = _get_client()
+    client.inboxes.messages.send(
+        inbox_id=os.environ["AGENTMAIL_INBOX_ID"],
+        to=[to_email],
+        subject="Welcome!",
+        text=f"Hi {name},\n\nWelcome aboard — glad to have you.\n\nThanks,\nThe Team",
+        html=f"<p>Hi {name},</p><p>Welcome aboard — glad to have you.</p><p>Thanks,<br>The Team</p>",
+    )
+```
+
+**app.py**
+```python
+from flask import Flask, request, jsonify
+
+from email_service import send_welcome_email
+
+app = Flask(__name__)
+
+users = {}  # placeholder store; replace with your real DB
+
+
+@app.post("/signup")
+def signup():
+    data = request.get_json(silent=True) or {}
+    email = data.get("email", "").strip().lower()
+    name = data.get("name", "").strip()
+
+    if not email or not name:
+        return jsonify(error="email and name are required"), 400
+    if email in users:
+        return jsonify(error="user already exists"), 409
+
+    users[email] = {"name": name}
+
+    try:
+        send_welcome_email(email, name)
+    except Exception:
+        app.logger.exception("failed to send welcome email to %s", email)
+
+    return jsonify(email=email, name=name), 201
+
+
+if __name__ == "__main__":
+    app.run(debug=True)
+```
+
+Notes:
+- `AGENTMAIL_INBOX_ID` is the AgentMail inbox address the welcome email sends *from*; create it in your AgentMail dashboard.
+- Signup succeeds even if the email send fails (logged, not raised) — adjust if you'd rather fail the request.
+- I couldn't reach the AgentMail docs via context7 in this session (permission wasn't granted), so I wrote the SDK call — `client.inboxes.messages.send(...)` — from general knowledge of their API shape. Worth a quick diff against their current Python SDK quickstart before shipping, in case field names have shifted.
+
+I also don't have filesystem/shell tools available in this session, so I couldn't write these directly into your repo — you'll need to save these files yourself.

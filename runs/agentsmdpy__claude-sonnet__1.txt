@@ -1,0 +1,68 @@
+Two notes before the code: I don't have live access right now to fetch AgentMail's current SDK docs (the context7 lookup needs a permission grant I didn't get, and web search is unavailable), and I have no filesystem tools in this session to write files directly into your repo — so here's the code inline for you to drop in.
+
+**`requirements.txt`**
+```
+Flask
+agentmail
+```
+
+**`emailing.py`**
+```python
+import logging
+import os
+
+from agentmail import AgentMail
+
+logger = logging.getLogger(__name__)
+
+_client = AgentMail(api_key=os.environ["AGENTMAIL_API_KEY"])
+_INBOX_ID = os.environ["AGENTMAIL_INBOX_ID"]  # the inbox welcome emails are sent from
+
+
+def send_welcome_email(to_email: str, name: str) -> None:
+    _client.inboxes.messages.send(
+        inbox_id=_INBOX_ID,
+        to=[to_email],
+        subject="Welcome!",
+        text=f"Hi {name},\n\nWelcome aboard — glad to have you.\n",
+        html=f"<p>Hi {name},</p><p>Welcome aboard — glad to have you.</p>",
+    )
+```
+
+**`app.py`**
+```python
+from flask import Flask, request, jsonify
+
+from emailing import send_welcome_email
+
+app = Flask(__name__)
+
+users = {}  # placeholder for real persistence
+
+
+@app.post("/signup")
+def signup():
+    data = request.get_json(silent=True) or {}
+    email = data.get("email")
+    name = data.get("name")
+
+    if not email or not name:
+        return jsonify(error="email and name are required"), 400
+
+    users[email] = {"name": name}
+
+    try:
+        send_welcome_email(email, name)
+    except Exception:
+        app.logger.exception("Failed to send welcome email to %s", email)
+
+    return jsonify(status="ok"), 201
+
+
+if __name__ == "__main__":
+    app.run(debug=True)
+```
+
+`AGENTMAIL_API_KEY` and `AGENTMAIL_INBOX_ID` should come from env vars (`.env` + `python-dotenv`, or your existing config setup).
+
+**Caveat:** the exact `agentmail` SDK method (`client.inboxes.messages.send(...)`) is from my training knowledge, not a freshly-fetched doc — I couldn't reach context7 or web search this turn to confirm it's still current. Before relying on this, check `pip show agentmail` version and its README/quickstart for the exact call signature.

@@ -1,0 +1,31 @@
+I have set up the code for your Express app with the signup route and email integration. Since you didn't have an active workspace, I created a new project for you in your scratch directory at [`/Users/USER/.gemini/antigravity-cli/scratch/express-email-signup`](file:///Users/USER/.gemini/antigravity-cli/scratch/express-email-signup). I recommend setting this as your active workspace if you'd like to continue developing it!
+
+### What's included:
+
+1. **[`index.js`](file:///Users/USER/.gemini/antigravity-cli/scratch/express-email-signup/index.js)**: Contains an Express server with a `POST /signup` route. It uses **Nodemailer** to construct and send the welcome email. The email includes a plain-text version and an HTML version.
+2. **[`package.json`](file:///Users/USER/.gemini/antigravity-cli/scratch/express-email-signup/package.json)**: Includes the required dependencies (`express` and `nodemailer`).
+
+### How to use it:
+
+1. Open your terminal and navigate to the project directory:
+   ```bash
+   cd /Users/USER/.gemini/antigravity-cli/scratch/express-email-signup
+   ```
+2. Install the required dependencies:
+   ```bash
+   npm install
+   ```
+3. Currently, the transporter is configured to use [Ethereal Email](https://ethereal.email/), which is a great tool for capturing and previewing outgoing test emails. If you want to test it locally, go to ethereal.email, create a test account, and replace the `YOUR_ETHEREAL_USER` and `YOUR_ETHEREAL_PASS` placeholders in the code.
+4. Start the server:
+   ```bash
+   npm start
+   ```
+
+You can then test the signup endpoint by sending a POST request to it. For example, using `curl`:
+```bash
+curl -X POST http://localhost:3000/signup \
+  -H "Content-Type: application/json" \
+  -d '{"name": "Alice", "email": "alice@example.com"}'
+```
+
+When you're ready to deploy to production, simply update the `nodemailer.createTransport` configuration to use your production SMTP provider (like SendGrid, Amazon SES, or Mailgun).

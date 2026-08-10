@@ -1,0 +1,56 @@
+I don't have filesystem tools available in this session (no Read/Write/Edit/Bash), so I can't write these directly into your repo — here's the code to drop in yourself. I also couldn't reach live docs to verify AgentMail's exact SDK method names (the context7 tool needs permission you haven't granted), so double-check the `inboxes.messages.send` call against the installed package's types before relying on it.
+
+**`services/email.js`**
+```js
+const { AgentMailClient } = require('agentmail');
+
+const agentMail = new AgentMailClient({ apiKey: process.env.AGENTMAIL_API_KEY });
+
+async function sendWelcomeEmail(to, name) {
+  await agentMail.inboxes.messages.send(process.env.AGENTMAIL_INBOX_ID, {
+    to,
+    subject: `Welcome, ${name}!`,
+    text: `Hi ${name},\n\nWelcome aboard — we're glad you're here.`,
+    html: `<p>Hi ${name},</p><p>Welcome aboard — we're glad you're here.</p>`,
+  });
+}
+
+module.exports = { sendWelcomeEmail };
+```
+
+**`routes/signup.js`**
+```js
+const express = require('express');
+const { sendWelcomeEmail } = require('../services/email');
+
+const router = express.Router();
+
+router.post('/signup', async (req, res) => {
+  const { email, name } = req.body;
+
+  // ... create the user in your DB here ...
+
+  try {
+    await sendWelcomeEmail(email, name);
+  } catch (err) {
+    console.error('Failed to send welcome email', err);
+  }
+
+  res.status(201).json({ email, name });
+});
+
+module.exports = router;
+```
+
+**`.env`**
+```
+AGENTMAIL_API_KEY=your_api_key
+AGENTMAIL_INBOX_ID=your_inbox_id
+```
+
+Notes:
+- Welcome-email failure is logged, not thrown — a flaky email provider shouldn't fail signup.
+- You'll need `AGENTMAIL_INBOX_ID` (the inbox you send from) — provision that in your AgentMail dashboard.
+- Run `npm install agentmail` and confirm the client method signature (`inboxes.messages.send`) against `node_modules/agentmail`'s types, since I couldn't verify it against current docs this session.
+
+Want me to also add basic input validation on the signup route, or is user creation already handled elsewhere?

@@ -1,0 +1,45 @@
+Here’s the complete **Node Express** signup flow with a welcome email, ready to run:
+
+| File | Description |
+|------|-------------|
+| **package.json** | Project manifest with all required dependencies (`express`, `zod`, `nodemailer`, `dotenv`, `body‑parser`) and start scripts pointing to `server.js`. |
+| **server.js** | Express server with a `/signup` endpoint that validates the request using **Zod**, (placeholder) creates the user, and calls the email helper. |
+| **email.js** | Helper that uses **nodemailer** and reads SMTP configuration from environment variables. |
+| **.env** | Sample environment file (you’ll replace the placeholders with your real SMTP credentials). |
+
+**File links**
+
+- 📦 [package.json](file:///Users/USER/.gemini/antigravity-cli/brain/116cb9ef-57a5-46af-9c84-cfc3a1b8eb1d/welcome-app/package.json)  
+- 🖥️ [server.js](file:///Users/USER/.gemini/antigravity-cli/brain/116cb9ef-57a5-46af-9c84-cfc3a1b8eb1d/welcome-app/server.js)  
+- 📧 [email.js](file:///Users/USER/.gemini/antigravity-cli/brain/116cb9ef-57a5-46af-9c84-cfc3a1b8eb1d/welcome-app/email.js)  
+- 🔐 [.env](file:///Users/USER/.gemini/antigravity-cli/brain/116cb9ef-57a5-46af-9c84-cfc3a1b8eb1d/welcome-app/.env)
+
+### Next steps to get it running
+
+1. **Install dependencies** (already done once; run again after editing `package.json`):
+   ```bash
+   npm install
+   ```
+
+2. **Set up environment variables**:  
+   Edit the generated `.env` file with your SMTP host, port, security flag, user, password, and “from” address.
+
+3. **Start the server**:
+   ```bash
+   npm run dev   # uses nodemon for hot‑reloading
+   # or
+   npm start     # runs node server.js
+   ```
+
+4. **Test the signup endpoint** (e.g., with `curl`):
+   ```bash
+   curl -X POST http://localhost:3000/signup \
+        -H "Content-Type: application/json" \
+        -d '{"name":"Alice","email":"alice@example.com","password":"secret123"}'
+   ```
+
+   You should receive a `201` response and the configured SMTP server will send the welcome email.
+
+---
+
+**Security note** – Never commit the `.env` file (or any real credentials) to version control. Keep it local or use a secret manager in production.

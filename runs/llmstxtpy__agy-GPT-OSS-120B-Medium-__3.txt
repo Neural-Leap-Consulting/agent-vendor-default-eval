@@ -1,0 +1,115 @@
+Below is a minimal Flask example that sends a welcome email via **AgentMail** whenever a new user signs up.  
+
+```python
+# app.py
+import os
+from flask import Flask, request, jsonify
+from agentmail import AgentMail
+
+# -------------------------------------------------
+# Initialise Flask app & AgentMail client
+# -------------------------------------------------
+app = Flask(__name__)
+
+# Make sure the API key is set in the environment:
+#   export AGENTMAIL_API_KEY="your‑agentmail‑api‑key"
+client = AgentMail(api_key=os.getenv("AGENTMAIL_API_KEY"))
+# You can also raise a clear error if the key is missing:
+if not client.api_key:
+    raise RuntimeError("AGENTMAIL_API_KEY environment variable not set")
+
+# -------------------------------------------------
+# Helper: send welcome email
+# -------------------------------------------------
+def send_welcome_email(to_address: str, inbox_id: str = "onboarding@yourdomain.com"):
+    """
+    Sends a simple welcome email to *to_address* using the specified inbox.
+    """
+    client.inboxes.messages.send(
+        inbox_id=inbox_id,
+        to=[to_address],
+        subject="Welcome to Our Service",
+        text="Thanks for signing up! We're thrilled to have you on board.",
+    )
+
+# -------------------------------------------------
+# Route: user signup (example payload)
+# -------------------------------------------------
+@app.route("/signup", methods=["POST"])
+def signup():
+    """
+    Expected JSON payload:
+    {
+        "email": "newuser@example.com",
+        "name": "New User"
+    }
+    """
+    data = request.get_json(silent=True) or {}
+    email = data.get("email")
+    name = data.get("name", "Friend")
+
+    if not email:
+        return jsonify({"error": "Email is required"}), 400
+
+    # TODO: add your own user‑creation logic here (e.g. DB insert)
+
+    # Send the welcome email
+    try:
+        send_welcome_email(to_address=email)
+    except Exception as e:
+        # Log the error (replace with your logging setup)
+        app.logger.error(f"Failed to send welcome email: {e}")
+        # You may still want to return success for the signup itself
+        # or decide to abort depending on your requirements.
+
+    return jsonify(
+        {
+            "message": f"User {name} registered successfully. "
+            f"A welcome email has been sent to {email}."
+        }
+    ), 201
+
+# -------------------------------------------------
+# Run the app (development only)
+# -------------------------------------------------
+if __name__ == "__main__":
+    # For production use a proper WSGI server (gunicorn, uvicorn, etc.)
+    app.run(host="0.0.0.0", port=5000, debug=True)
+```
+
+### How to use
+
+1. **Install dependencies**  
+
+   ```bash
+   pip install flask agentmail
+   ```
+
+2. **Set the API key** (replace with your real key)
+
+   ```bash
+   export AGENTMAIL_API_KEY="sk_live_…"
+   ```
+
+3. **Start the server**
+
+   ```bash
+   python app.py
+   ```
+
+4. **Create a user** – send a POST request to `http://localhost:5000/signup` with JSON body:
+
+   ```json
+   {
+       "email": "newuser@example.com",
+       "name": "New User"
+   }
+   ```
+
+   The endpoint will create the user (you can plug in your own DB logic) and automatically dispatch the welcome email via AgentMail.
+
+---
+
+**Note:**  
+* In a real deployment you’ll want to run Flask behind a production‑grade WSGI server (e.g., **gunicorn**).  
+* Consider adding error handling, retries, and logging around the email‑sending call based on your reliability requirements.  

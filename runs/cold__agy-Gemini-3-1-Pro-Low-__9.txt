@@ -1,0 +1,33 @@
+I've created a complete Node.js Express application that sends a welcome email upon user signup using `nodemailer`.
+
+I set up the project in your scratch directory and ran `npm install` to get everything ready.
+
+Here are the files I created:
+- [`package.json`](file:///Users/USER/.gemini/antigravity-cli/scratch/express-email-app/package.json)
+- [`index.js`](file:///Users/USER/.gemini/antigravity-cli/scratch/express-email-app/index.js)
+
+### How it works:
+1.  **Express Server:** The server listens for `POST` requests on the `/signup` endpoint.
+2.  **Validation:** It verifies that a `name`, `email`, and `password` are provided in the request body.
+3.  **Mock Database:** The user is added to an in-memory array (`users`). You would replace this with a real database (e.g., PostgreSQL, MongoDB) in a production app.
+4.  **Email Sending:** It uses `nodemailer` to send a welcome email.
+    - I've configured it to use environment variables (`SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`).
+    - If these environment variables are missing, it falls back to a placeholder configuration (like Ethereal Email, which is great for testing).
+    
+### To test it:
+1. Navigate to the project directory:
+   ```bash
+   cd /Users/USER/.gemini/antigravity-cli/scratch/express-email-app
+   ```
+2. Start the server:
+   ```bash
+   npm start
+   ```
+3. Send a POST request to test the endpoint (you can use another terminal window):
+   ```bash
+   curl -X POST http://localhost:3000/signup \
+        -H "Content-Type: application/json" \
+        -d '{"name":"Alice", "email":"alice@example.com", "password":"password123"}'
+   ```
+
+For production, you'll want to configure `nodemailer` to use a real transactional email provider like SendGrid, Mailgun, or Amazon SES by providing the appropriate SMTP credentials via a `.env` file! Let me know if you want to set up a specific email provider or add a real database to this.

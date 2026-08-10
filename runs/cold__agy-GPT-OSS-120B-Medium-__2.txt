@@ -1,0 +1,29 @@
+Here’s a minimal, ready‑to‑run Express project that sends a welcome email on user sign‑up.
+
+| File | Purpose |
+|------|---------|
+| [`package.json`](file:///Users/USER/.gemini/antigravity-cli/brain/9a168938-177d-4fd9-8d28-49ac0c5fc47c/welcome-email-app/package.json) | Project definition and dependencies (`express`, `nodemailer`, `dotenv`). |
+| [`app.js`](file:///Users/USER/.gemini/antigravity-cli/brain/9a168938-177d-4fd9-8d28-49ac0c5fc47c/welcome-email-app/app.js) | Main server: parses JSON, configures Nodemailer, defines `/signup` route that sends the email. |
+| [`.env`](file:///Users/USER/.gemini/antigravity-cli/brain/9a168938-177d-4fd9-8d28-49ac0c5fc47c/welcome-email-app/.env) | Placeholder SMTP configuration – fill in your real credentials. |
+| [`README.md`](file:///Users/USER/.gemini/antigravity-cli/brain/9a168938-177d-4fd9-8d28-49ac0c5fc47c/welcome-email-app/README.md) | Quick‑start instructions, usage example, and security notes. |
+
+### Quick start (run inside the created folder)
+
+```bash
+cd /Users/USER/.gemini/antigravity-cli/brain/9a168938-177d-4fd9-8d28-49ac0c5fc47c/welcome-email-app
+npm install               # installs express, nodemailer, dotenv
+# Edit .env with your SMTP credentials
+npm start                 # starts the server (defaults to port 3000)
+```
+
+### Test the sign‑up endpoint
+
+```bash
+curl -X POST http://localhost:3000/signup \
+  -H "Content-Type: application/json" \
+  -d '{"email":"test@example.com","name":"Test User"}'
+```
+
+You should receive a `200` response and the configured SMTP server will send the welcome email.  
+
+Feel free to adapt the email template or add real user‑registration logic inside the `/signup` handler. Let me know if you need additional features (e.g., HTML email styling, verification flow, or integration with a database).

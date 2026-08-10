@@ -1,0 +1,102 @@
+No local file-editing tools are available in this session, so here's the implementation to paste into your project directly.
+
+## `app.py`
+
+```python
+import os
+import smtplib
+import threading
+from email.message import EmailMessage
+
+from flask import Flask, jsonify, request
+from werkzeug.security import generate_password_hash
+
+app = Flask(__name__)
+
+SMTP_HOST = os.environ["SMTP_HOST"]
+SMTP_PORT = int(os.environ.get("SMTP_PORT", 587))
+SMTP_USERNAME = os.environ["SMTP_USERNAME"]
+SMTP_PASSWORD = os.environ["SMTP_PASSWORD"]
+FROM_EMAIL = os.environ.get("FROM_EMAIL", SMTP_USERNAME)
+
+# Demo storage only — replace with a real database (e.g. SQLAlchemy) in production.
+users = {}
+
+
+def send_welcome_email(to_email, username):
+    msg = EmailMessage()
+    msg["Subject"] = "Welcome!"
+    msg["From"] = FROM_EMAIL
+    msg["To"] = to_email
+    msg.set_content(
+        f"Hi {username},\n\n"
+        "Thanks for signing up! We're glad to have you.\n\n"
+        "— The Team"
+    )
+
+    with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as server:
+        server.starttls()
+        server.login(SMTP_USERNAME, SMTP_PASSWORD)
+        server.send_message(msg)
+
+
+def send_welcome_email_async(to_email, username):
+    thread = threading.Thread(
+        target=send_welcome_email, args=(to_email, username), daemon=True
+    )
+    thread.start()
+
+
+@app.post("/signup")
+def signup():
+    data = request.get_json(silent=True) or {}
+    username = data.get("username", "").strip()
+    email = data.get("email", "").strip().lower()
+    password = data.get("password", "")
+
+    if not username or not email or not password:
+        return jsonify({"error": "username, email, and password are required"}), 400
+
+    if email in users:
+        return jsonify({"error": "email already registered"}), 409
+
+    users[email] = {
+        "username": username,
+        "password_hash": generate_password_hash(password),
+    }
+
+    try:
+        send_welcome_email_async(email, username)
+    except Exception:
+        app.logger.exception("Failed to queue welcome email for %s", email)
+
+    return jsonify({"message": "signup successful"}), 201
+
+
+if __name__ == "__main__":
+    app.run(debug=True)
+```
+
+## `requirements.txt`
+
+```
+Flask>=3.0
+```
+
+(No extra library needed — this uses the standard library `smtplib`/`email` instead of Flask-Mail, so there's one less dependency to manage.)
+
+## `.env` (don't commit this — load with `python-dotenv` or your platform's secret manager)
+
+```
+SMTP_HOST=smtp.your-provider.com
+SMTP_PORT=587
+SMTP_USERNAME=your-smtp-username
+SMTP_PASSWORD=your-smtp-password
+FROM_EMAIL=noreply@yourapp.com
+```
+
+Notes:
+- Email is sent on a background thread so the signup request doesn't block waiting on the SMTP round-trip. For production traffic, swap the thread for a real task queue (Celery/RQ) so a crashed worker doesn't silently drop emails.
+- Password is hashed with `werkzeug.security`, never stored in plaintext.
+- Credentials come from environment variables, never hardcoded.
+- Replace the in-memory `users` dict with a real database — it's a placeholder so the example runs standalone.

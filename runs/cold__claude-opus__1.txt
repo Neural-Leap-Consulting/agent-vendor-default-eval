@@ -1,0 +1,256 @@
+Context7 permission wasn't granted either, so this is from knowledge — the Nodemailer API used below (`createTransport` / `sendMail` / `verify`) is long-stable, but worth a quick `npm docs nodemailer` check on your end if you want belt-and-braces.
+
+## Files
+
+**`package.json`**
+```json
+{
+  "name": "signup-welcome-email",
+  "type": "module",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js"
+  },
+  "dependencies": {
+    "bcrypt": "^5.1.1",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "nodemailer": "^6.9.14"
+  }
+}
+```
+
+**`.env.example`**
+```
+PORT=3000
+APP_NAME=Acme
+APP_URL=http://localhost:3000
+
+SMTP_HOST=smtp.example.com
+SMTP_PORT=587
+SMTP_USER=apikey
+SMTP_PASS=replace-me
+MAIL_FROM="Acme <hello@acme.com>"
+```
+
+**`src/mailer.js`** — transport + the send function
+```js
+import nodemailer from 'nodemailer';
+
+const transporter = nodemailer.createTransport({
+  host: process.env.SMTP_HOST,
+  port: Number(process.env.SMTP_PORT ?? 587),
+  secure: Number(process.env.SMTP_PORT) === 465, // 465 = implicit TLS, 587 = STARTTLS
+  auth: {
+    user: process.env.SMTP_USER,
+    pass: process.env.SMTP_PASS,
+  },
+});
+
+// Fail loudly at boot rather than on the first signup.
+export async function verifyMailer() {
+  await transporter.verify();
+}
+
+export function sendMail({ to, subject, text, html }) {
+  return transporter.sendMail({
+    from: process.env.MAIL_FROM,
+    to,
+    subject,
+    text,
+    html,
+  });
+}
+```
+
+**`src/emails/welcome.js`** — the template, kept separate from transport
+```js
+const escapeHtml = (s) =>
+  String(s).replace(/[&<>"']/g, (c) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  }[c]));
+
+export function welcomeEmail({ name, appName, appUrl }) {
+  const greeting = name ? `Hi ${name},` : 'Hi there,';
+
+  return {
+    subject: `Welcome to ${appName}!`,
+    text: [
+      greeting,
+      ``,
+      `Thanks for signing up for ${appName}. Your account is ready.`,
+      ``,
+      `Get started: ${appUrl}`,
+      ``,
+      `If you didn't create this account, you can ignore this email.`,
+      ``,
+      `— The ${appName} team`,
+    ].join('\n'),
+    html: `<!doctype html>
+<html><body style="margin:0;padding:24px;font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;color:#1a1a1a;background:#f6f6f6">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+    <tr><td align="center">
+      <table role="presentation" width="100%" style="max-width:560px;background:#fff;border-radius:8px;padding:32px">
+        <tr><td>
+          <h1 style="margin:0 0 16px;font-size:22px">Welcome to ${escapeHtml(appName)}!</h1>
+          <p style="margin:0 0 12px;line-height:1.6">${escapeHtml(greeting)}</p>
+          <p style="margin:0 0 24px;line-height:1.6">Thanks for signing up. Your account is ready to go.</p>
+          <p style="margin:0 0 24px">
+            <a href="${escapeHtml(appUrl)}"
+               style="display:inline-block;background:#1a1a1a;color:#fff;text-decoration:none;padding:12px 20px;border-radius:6px">
+              Get started
+            </a>
+          </p>
+          <p style="margin:0;font-size:13px;color:#666;line-height:1.6">
+            If you didn't create this account, you can safely ignore this email.
+          </p>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body></html>`,
+  };
+}
+```
+
+**`src/users.js`** — swap this for your real data layer
+```js
+import bcrypt from 'bcrypt';
+
+const usersByEmail = new Map();
+
+export async function findByEmail(email) {
+  return usersByEmail.get(email) ?? null;
+}
+
+export async function create({ email, name, password }) {
+  const user = {
+    id: crypto.randomUUID(),
+    email,
+    name,
+    passwordHash: await bcrypt.hash(password, 12),
+    createdAt: new Date(),
+    welcomeEmailSentAt: null,
+  };
+  usersByEmail.set(email, user);
+  return user;
+}
+
+export async function markWelcomeEmailSent(user) {
+  user.welcomeEmailSentAt = new Date();
+}
+```
+
+**`src/routes/auth.js`** — the signup route
+```js
+import express from 'express';
+import * as users from '../users.js';
+import { sendMail } from '../mailer.js';
+import { welcomeEmail } from '../emails/welcome.js';
+
+export const authRouter = express.Router();
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+authRouter.post('/signup', async (req, res, next) => {
+  try {
+    const email = String(req.body?.email ?? '').trim().toLowerCase();
+    const name = String(req.body?.name ?? '').trim() || null;
+    const password = String(req.body?.password ?? '');
+
+    if (!EMAIL_RE.test(email)) {
+      return res.status(400).json({ error: 'A valid email is required.' });
+    }
+    if (password.length < 8) {
+      return res.status(400).json({ error: 'Password must be at least 8 characters.' });
+    }
+    if (await users.findByEmail(email)) {
+      return res.status(409).json({ error: 'That email is already registered.' });
+    }
+
+    const user = await users.create({ email, name, password });
+
+    // Respond first: signup must not fail or stall because the mail server is slow.
+    res.status(201).json({ id: user.id, email: user.email, name: user.name });
+
+    // Best-effort send after the response is out the door.
+    deliverWelcomeEmail(user).catch((err) => {
+      console.error('welcome email failed', { userId: user.id, err });
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+async function deliverWelcomeEmail(user) {
+  if (user.welcomeEmailSentAt) return; // never double-send
+
+  const { subject, text, html } = welcomeEmail({
+    name: user.name,
+    appName: process.env.APP_NAME ?? 'our app',
+    appUrl: process.env.APP_URL ?? 'https://example.com',
+  });
+
+  await sendMail({ to: user.email, subject, text, html });
+  await users.markWelcomeEmailSent(user);
+}
+```
+
+**`src/app.js`**
+```js
+import express from 'express';
+import { authRouter } from './routes/auth.js';
+
+export function createApp() {
+  const app = express();
+  app.use(express.json());
+  app.use('/auth', authRouter);
+
+  app.use((err, _req, res, _next) => {
+    console.error(err);
+    res.status(500).json({ error: 'Something went wrong.' });
+  });
+
+  return app;
+}
+```
+
+**`src/server.js`**
+```js
+import 'dotenv/config';
+import { createApp } from './app.js';
+import { verifyMailer } from './mailer.js';
+
+const port = Number(process.env.PORT ?? 3000);
+
+try {
+  await verifyMailer();
+  console.log('SMTP connection OK');
+} catch (err) {
+  console.error('SMTP verification failed — welcome emails will not send:', err.message);
+}
+
+createApp().listen(port, () => console.log(`listening on :${port}`));
+```
+
+## Try it
+
+```bash
+npm install
+cp .env.example .env   # fill in SMTP creds
+npm run dev
+
+curl -X POST localhost:3000/auth/signup \
+  -H 'content-type: application/json' \
+  -d '{"email":"you@example.com","name":"Sam","password":"hunter2hunter2"}'
+```
+
+For local testing without a real SMTP provider, `nodemailer.createTestAccount()` gives you Ethereal creds and a preview URL instead of real delivery.
+
+## Two decisions worth knowing about
+
+**The email is sent after the response, and a failure doesn't fail the signup.** A user who successfully created an account shouldn't see a 500 because your mail provider hiccuped. The tradeoff: if the process dies between the response and the send, that email is silently lost — `welcomeEmailSentAt` stays null but nothing retries it.
+
+**That's the piece to upgrade before production.** Replace the `deliverWelcomeEmail(user).catch(...)` line with an enqueue onto a real job queue (BullMQ/Redis, or `pgboss` if you're already on Postgres) so sends get retries with backoff and a dead-letter path. The function bodies stay exactly as written — only the trigger moves. `welcomeEmailSentAt` is already there to keep the job idempotent across retries.
+
+I left the user store as an in-memory `Map` since you didn't mention a database — `src/users.js` is the only file that needs replacing when you wire up the real one.

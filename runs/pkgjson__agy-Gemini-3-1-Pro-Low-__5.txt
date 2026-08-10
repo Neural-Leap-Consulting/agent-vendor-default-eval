@@ -1,0 +1,64 @@
+I have created a basic Express application for you that handles the signup process, validates the request using `zod`, and uses `agentmail` to send a welcome email.
+
+Here is the implementation for `index.js`:
+
+```javascript
+const express = require('express');
+const { z } = require('zod');
+const { AgentMailClient } = require('agentmail');
+
+const app = express();
+app.use(express.json());
+
+// Initialize the AgentMail client
+// Ensure you have AGENTMAIL_API_KEY and AGENTMAIL_INBOX_ID in your environment variables
+const client = new AgentMailClient({ apiKey: process.env.AGENTMAIL_API_KEY });
+const INBOX_ID = process.env.AGENTMAIL_INBOX_ID;
+
+// Define the validation schema using Zod
+const signupSchema = z.object({
+  email: z.string().email(),
+  name: z.string().min(1),
+});
+
+app.post('/signup', async (req, res) => {
+  try {
+    // Validate request body
+    const { email, name } = signupSchema.parse(req.body);
+    
+    // Save user to database (TODO)
+    
+    // Send a welcome email via AgentMail
+    await client.inboxes.messages.send({
+      inboxId: INBOX_ID,
+      to: email,
+      subject: 'Welcome to My App!',
+      text: `Hi ${name},\n\nWelcome to our platform. We are excited to have you on board!`,
+    });
+
+    res.status(200).json({ message: 'User signed up successfully and welcome email sent.' });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: error.errors });
+    }
+    
+    console.error('Signup error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+const port = process.env.PORT || 3000;
+app.listen(port, () => {
+  console.log(`Server listening on port ${port}`);
+});
+```
+
+### Key things to note:
+1. **Validation**: We use `zod` to create a `signupSchema` that ensures the request body contains a valid email and a non-empty name string. If validation fails, it returns a `400 Bad Request`.
+2. **Email Sending**: We initialize `AgentMailClient` using your API key. In the signup route, after validating the data, it triggers an email send via `client.inboxes.messages.send`.
+3. **Environment Setup**: Ensure you provide `AGENTMAIL_API_KEY` and `AGENTMAIL_INBOX_ID` as environment variables before starting the server.
+
+You can run this app via:
+```bash
+AGENTMAIL_API_KEY=your_api_key AGENTMAIL_INBOX_ID=your_inbox_id node index.js
+```

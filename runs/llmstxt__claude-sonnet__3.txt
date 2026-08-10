@@ -1,0 +1,63 @@
+Here's a signup route that sends the welcome email via AgentMail, with the send wrapped so a mail failure doesn't break signup:
+
+```js
+// mailer.js
+const { AgentMail } = require('agentmail');
+
+const agentMail = new AgentMail({ apiKey: process.env.AGENTMAIL_API_KEY });
+
+async function sendWelcomeEmail(toEmail, name) {
+  await agentMail.inboxes.messages.send({
+    inboxId: process.env.AGENTMAIL_INBOX_ID,
+    to: [toEmail],
+    subject: 'Welcome!',
+    text: `Hi ${name},\n\nThanks for signing up. We're glad to have you.`,
+  });
+}
+
+module.exports = { sendWelcomeEmail };
+```
+
+```js
+// routes/signup.js
+const express = require('express');
+const { sendWelcomeEmail } = require('../mailer');
+
+const router = express.Router();
+
+router.post('/signup', async (req, res) => {
+  const { email, name } = req.body;
+
+  if (!email || !name) {
+    return res.status(400).json({ error: 'email and name are required' });
+  }
+
+  // TODO: create the user record here
+
+  try {
+    await sendWelcomeEmail(email, name);
+  } catch (err) {
+    console.error('Failed to send welcome email:', err);
+  }
+
+  res.status(201).json({ message: 'User created' });
+});
+
+module.exports = router;
+```
+
+```js
+// app.js
+const express = require('express');
+const signupRouter = require('./routes/signup');
+
+const app = express();
+app.use(express.json());
+app.use('/', signupRouter);
+
+app.listen(3000, () => console.log('Server running on port 3000'));
+```
+
+Set `AGENTMAIL_API_KEY` and `AGENTMAIL_INBOX_ID` in your `.env` (load with `dotenv` if you use one). The email send is fire-and-forget with a caught error so a transient mail failure doesn't turn signup into a 500 — swap that for a retry queue if delivery must be guaranteed.
+
+Note: I don't have file-write access in this session, so I couldn't create these files directly in your project — paste them in, or ask me to write them once file tools are available.

@@ -1,0 +1,251 @@
+No filesystem tools are available in this session, so here's the code inline — file paths are marked as headers, ready to paste.
+
+## `config.py`
+
+```python
+import os
+
+
+class Config:
+    SECRET_KEY = os.environ["SECRET_KEY"]
+    SQLALCHEMY_DATABASE_URI = os.environ.get("DATABASE_URL", "sqlite:///app.db")
+    SQLALCHEMY_TRACK_MODIFICATIONS = False
+
+    # SMTP
+    MAIL_SERVER = os.environ.get("MAIL_SERVER", "localhost")
+    MAIL_PORT = int(os.environ.get("MAIL_PORT", 587))
+    MAIL_USE_TLS = os.environ.get("MAIL_USE_TLS", "true").lower() == "true"
+    MAIL_USERNAME = os.environ.get("MAIL_USERNAME")
+    MAIL_PASSWORD = os.environ.get("MAIL_PASSWORD")
+    MAIL_FROM = os.environ.get("MAIL_FROM", "no-reply@example.com")
+
+    APP_NAME = os.environ.get("APP_NAME", "Acme")
+    APP_URL = os.environ.get("APP_URL", "http://localhost:5000")
+```
+
+## `models.py`
+
+```python
+from datetime import datetime, timezone
+
+from flask_sqlalchemy import SQLAlchemy
+from werkzeug.security import check_password_hash, generate_password_hash
+
+db = SQLAlchemy()
+
+
+class User(db.Model):
+    __tablename__ = "users"
+
+    id = db.Column(db.Integer, primary_key=True)
+    email = db.Column(db.String(255), unique=True, nullable=False, index=True)
+    name = db.Column(db.String(120), nullable=False)
+    password_hash = db.Column(db.String(255), nullable=False)
+    created_at = db.Column(
+        db.DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+    )
+
+    def set_password(self, password):
+        self.password_hash = generate_password_hash(password)
+
+    def check_password(self, password):
+        return check_password_hash(self.password_hash, password)
+```
+
+## `emails.py`
+
+```python
+import smtplib
+import ssl
+from email.message import EmailMessage
+from threading import Thread
+
+from flask import current_app, render_template
+
+
+def _send_smtp(config, to, subject, text_body, html_body):
+    msg = EmailMessage()
+    msg["Subject"] = subject
+    msg["From"] = config["MAIL_FROM"]
+    msg["To"] = to
+    msg.set_content(text_body)
+    msg.add_alternative(html_body, subtype="html")
+
+    with smtplib.SMTP(config["MAIL_SERVER"], config["MAIL_PORT"], timeout=15) as smtp:
+        if config["MAIL_USE_TLS"]:
+            smtp.starttls(context=ssl.create_default_context())
+        if config["MAIL_USERNAME"]:
+            smtp.login(config["MAIL_USERNAME"], config["MAIL_PASSWORD"])
+        smtp.send_message(msg)
+
+
+def _deliver(app, to, subject, text_body, html_body):
+    with app.app_context():
+        try:
+            _send_smtp(app.config, to, subject, text_body, html_body)
+            app.logger.info("Welcome email sent to %s", to)
+        except Exception:
+            # A failed email must never take down the signup that triggered it.
+            app.logger.exception("Failed to send welcome email to %s", to)
+
+
+def send_welcome_email(user):
+    """Render now (we have a request context), deliver on a background thread."""
+    app = current_app._get_current_object()
+    ctx = {
+        "name": user.name,
+        "app_name": app.config["APP_NAME"],
+        "login_url": f"{app.config['APP_URL'].rstrip('/')}/login",
+    }
+    subject = f"Welcome to {ctx['app_name']}, {user.name}!"
+    text_body = render_template("email/welcome.txt", **ctx)
+    html_body = render_template("email/welcome.html", **ctx)
+
+    Thread(
+        target=_deliver,
+        args=(app, user.email, subject, text_body, html_body),
+        daemon=True,
+    ).start()
+```
+
+## `auth.py`
+
+```python
+import re
+
+from flask import Blueprint, jsonify, request
+from sqlalchemy.exc import IntegrityError
+
+from emails import send_welcome_email
+from models import User, db
+
+bp = Blueprint("auth", __name__)
+
+EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+MIN_PASSWORD_LENGTH = 8
+
+
+@bp.post("/signup")
+def signup():
+    data = request.get_json(silent=True) or request.form
+    email = (data.get("email") or "").strip().lower()
+    name = (data.get("name") or "").strip()
+    password = data.get("password") or ""
+
+    errors = {}
+    if not EMAIL_RE.match(email):
+        errors["email"] = "Enter a valid email address."
+    if not name:
+        errors["name"] = "Name is required."
+    if len(password) < MIN_PASSWORD_LENGTH:
+        errors["password"] = f"Password must be at least {MIN_PASSWORD_LENGTH} characters."
+    if errors:
+        return jsonify(errors=errors), 400
+
+    user = User(email=email, name=name)
+    user.set_password(password)
+    db.session.add(user)
+    try:
+        db.session.commit()
+    except IntegrityError:
+        # Unique constraint on email — also covers the concurrent-signup race.
+        db.session.rollback()
+        return jsonify(error="An account with that email already exists."), 409
+
+    send_welcome_email(user)
+
+    return jsonify(id=user.id, email=user.email, name=user.name), 201
+```
+
+## `app.py`
+
+```python
+import logging
+
+from flask import Flask
+
+from auth import bp as auth_bp
+from config import Config
+from models import db
+
+
+def create_app(config_class=Config):
+    app = Flask(__name__)
+    app.config.from_object(config_class)
+    logging.basicConfig(level=logging.INFO)
+
+    db.init_app(app)
+    app.register_blueprint(auth_bp)
+
+    with app.app_context():
+        db.create_all()
+
+    return app
+
+
+app = create_app()
+
+if __name__ == "__main__":
+    app.run(debug=True)
+```
+
+## `templates/email/welcome.txt`
+
+```
+Hi {{ name }},
+
+Welcome to {{ app_name }} — your account is ready.
+
+Sign in here: {{ login_url }}
+
+If you didn't create this account, you can safely ignore this email.
+
+— The {{ app_name }} team
+```
+
+## `templates/email/welcome.html`
+
+```html
+<!doctype html>
+<html>
+  <body style="font-family: -apple-system, Segoe UI, Helvetica, Arial, sans-serif; line-height: 1.5; color: #1a1a1a;">
+    <h2 style="margin-bottom: 0.25em;">Welcome to {{ app_name }}, {{ name }}!</h2>
+    <p>Your account is ready to go.</p>
+    <p>
+      <a href="{{ login_url }}"
+         style="display: inline-block; padding: 10px 18px; background: #2563eb; color: #fff; text-decoration: none; border-radius: 6px;">
+        Sign in
+      </a>
+    </p>
+    <p style="color: #666; font-size: 13px;">
+      If you didn't create this account, you can safely ignore this email.
+    </p>
+  </body>
+</html>
+```
+
+## `requirements.txt`
+
+```
+Flask>=3.0
+Flask-SQLAlchemy>=3.1
+```
+
+## Notes on the design choices
+
+- **The user is committed before the email is attempted, and send failures are caught and logged.** A dead SMTP server should not cost you a signup.
+- **Sending happens off the request thread**, so a slow SMTP handshake doesn't add seconds to the signup response. The `Thread` approach is fine for low volume but has no retries and dies with the process — for production, swap `send_welcome_email` for a Celery/RQ/Dramatiq task. The function signature stays the same; only the `Thread(...)` line changes.
+- **Both plain-text and HTML parts** are sent, which materially helps deliverability and spam scoring.
+- Email is lowercased before storage and lookup so `Bob@x.com` and `bob@x.com` can't both register.
+- The `IntegrityError` catch is what actually enforces uniqueness — a pre-check `SELECT` alone has a race window between two concurrent signups.
+
+Quick test:
+
+```bash
+SECRET_KEY=dev MAIL_SERVER=localhost MAIL_PORT=1025 MAIL_USE_TLS=false python app.py
+# in another shell: python -m aiosmtpd -n -l localhost:1025   (prints emails to stdout)
+curl -X POST localhost:5000/signup -H 'Content-Type: application/json' \
+  -d '{"email":"a@b.com","name":"Ada","password":"hunter2hunter2"}'
+```

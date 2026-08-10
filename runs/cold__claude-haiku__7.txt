@@ -1,0 +1,120 @@
+I'll provide you with the complete code to set up. Create these files in your project:
+
+**1. `package.json`**
+```json
+{
+  "name": "signup-email-app",
+  "version": "1.0.0",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "nodemailer": "^6.9.7",
+    "dotenv": "^16.3.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
+  }
+}
+```
+
+**2. `.env`** (for local development)
+```
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USER=your-email@gmail.com
+SMTP_PASS=your-app-password
+FROM_EMAIL=noreply@yourapp.com
+```
+
+**3. `server.js`**
+```javascript
+const express = require('express');
+const nodemailer = require('nodemailer');
+require('dotenv').config();
+
+const app = express();
+app.use(express.json());
+
+// Email transporter
+const transporter = nodemailer.createTransport({
+  host: process.env.SMTP_HOST,
+  port: process.env.SMTP_PORT,
+  secure: process.env.SMTP_PORT === '465',
+  auth: {
+    user: process.env.SMTP_USER,
+    pass: process.env.SMTP_PASS,
+  },
+});
+
+async function sendWelcomeEmail(email, name) {
+  const htmlContent = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+      <h1>Welcome, ${name}!</h1>
+      <p>Thank you for signing up. We're excited to have you on board.</p>
+      <p>Get started by exploring your account settings.</p>
+      <p style="margin-top: 30px; color: #666; font-size: 12px;">
+        Best regards,<br/>The Team
+      </p>
+    </div>
+  `;
+
+  await transporter.sendMail({
+    from: process.env.FROM_EMAIL,
+    to: email,
+    subject: 'Welcome to Our App!',
+    html: htmlContent,
+  });
+}
+
+// Signup endpoint
+app.post('/signup', async (req, res) => {
+  try {
+    const { email, name, password } = req.body;
+
+    if (!email || !name || !password) {
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
+
+    // TODO: Save user to database here
+    console.log(`User signed up: ${email}`);
+
+    // Send welcome email
+    await sendWelcomeEmail(email, name);
+
+    res.json({ message: 'Signup successful! Check your email.' });
+  } catch (error) {
+    console.error('Signup error:', error);
+    res.status(500).json({ error: 'Signup failed' });
+  }
+});
+
+app.get('/health', (req, res) => {
+  res.json({ status: 'ok' });
+});
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+});
+```
+
+**Setup steps:**
+
+1. Install dependencies: `npm install`
+2. Configure `.env` with your email service
+3. For **Gmail**: Use an [App Password](https://support.google.com/accounts/answer/185833)
+4. For **other services** (SendGrid, Mailgun, etc.): Update the SMTP settings accordingly
+5. Run: `npm run dev`
+
+**Test it:**
+```bash
+curl -X POST http://localhost:3000/signup \
+  -H "Content-Type: application/json" \
+  -d '{"email":"user@example.com","name":"John","password":"secure123"}'
+```
+
+The email sends immediately after signup. Add your actual user database logic in the `// TODO` section.

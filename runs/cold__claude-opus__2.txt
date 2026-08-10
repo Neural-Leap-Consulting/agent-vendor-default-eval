@@ -1,0 +1,219 @@
+No file-write or shell tools are available in this session, and the context7 docs lookup wasn't permitted — so here's the code inline, ready to paste into your project.
+
+Two judgment calls I made, since you didn't specify: **Nodemailer over SMTP** (provider-agnostic — works with SES, Postmark, Resend, Mailgun by changing env vars only), and **email sending never blocks or fails the signup** (account creation is the transaction; the email is a side effect).
+
+## Install
+
+```bash
+npm i express nodemailer bcrypt zod dotenv
+```
+
+## `.env.example`
+
+```bash
+PORT=3000
+APP_NAME=Acme
+APP_URL=https://app.example.com
+
+SMTP_HOST=smtp.example.com
+SMTP_PORT=587
+SMTP_USER=apikey
+SMTP_PASS=changeme
+MAIL_FROM="Acme <hello@example.com>"
+```
+
+## `src/email/transporter.js`
+
+```js
+import nodemailer from 'nodemailer';
+
+const port = Number(process.env.SMTP_PORT ?? 587);
+
+export const transporter = nodemailer.createTransport({
+  host: process.env.SMTP_HOST,
+  port,
+  secure: port === 465, // 465 = implicit TLS; 587 upgrades via STARTTLS
+  auth: {
+    user: process.env.SMTP_USER,
+    pass: process.env.SMTP_PASS,
+  },
+  pool: true,
+  maxConnections: 5,
+});
+
+// Fail fast at boot rather than on the first signup.
+export async function verifyMailer() {
+  await transporter.verify();
+}
+```
+
+## `src/email/templates/welcome.js`
+
+```js
+const escapeHtml = (str) =>
+  String(str).replace(/[&<>"']/g, (c) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  }[c]));
+
+export function welcomeTemplate({ name, appName, appUrl }) {
+  const safeName = escapeHtml(name);
+
+  return {
+    subject: `Welcome to ${appName}, ${name}!`,
+    text: [
+      `Hi ${name},`,
+      ``,
+      `Thanks for signing up for ${appName}. Your account is ready.`,
+      ``,
+      `Get started: ${appUrl}`,
+      ``,
+      `— The ${appName} team`,
+    ].join('\n'),
+    html: `
+      <div style="font-family:system-ui,-apple-system,'Segoe UI',sans-serif;line-height:1.6;color:#1a1a1a;max-width:520px">
+        <h1 style="font-size:20px;margin:0 0 16px">Welcome to ${escapeHtml(appName)}, ${safeName}!</h1>
+        <p style="margin:0 0 16px">Thanks for signing up. Your account is ready to go.</p>
+        <p style="margin:0 0 24px">
+          <a href="${escapeHtml(appUrl)}"
+             style="display:inline-block;background:#1a1a1a;color:#fff;text-decoration:none;padding:10px 18px;border-radius:6px">
+            Get started
+          </a>
+        </p>
+        <p style="margin:0;color:#666;font-size:13px">— The ${escapeHtml(appName)} team</p>
+      </div>
+    `.trim(),
+  };
+}
+```
+
+The escaping matters: `name` is untrusted user input going into an HTML body.
+
+## `src/email/sendWelcomeEmail.js`
+
+```js
+import { transporter } from './transporter.js';
+import { welcomeTemplate } from './templates/welcome.js';
+
+export async function sendWelcomeEmail({ to, name }) {
+  const { subject, text, html } = welcomeTemplate({
+    name,
+    appName: process.env.APP_NAME ?? 'Acme',
+    appUrl: process.env.APP_URL ?? 'https://example.com',
+  });
+
+  return transporter.sendMail({
+    from: process.env.MAIL_FROM,
+    to,
+    subject,
+    text,
+    html,
+  });
+}
+```
+
+## `src/users.js` — swap this for your real DB
+
+```js
+import bcrypt from 'bcrypt';
+
+const usersByEmail = new Map();
+
+export async function findByEmail(email) {
+  return usersByEmail.get(email.toLowerCase()) ?? null;
+}
+
+export async function createUser({ email, name, password }) {
+  const normalized = email.toLowerCase();
+  const user = {
+    id: crypto.randomUUID(),
+    email: normalized,
+    name,
+    passwordHash: await bcrypt.hash(password, 12),
+    createdAt: new Date(),
+  };
+  usersByEmail.set(normalized, user);
+  return user;
+}
+```
+
+## `src/routes/auth.js`
+
+```js
+import { Router } from 'express';
+import { z } from 'zod';
+import { createUser, findByEmail } from '../users.js';
+import { sendWelcomeEmail } from '../email/sendWelcomeEmail.js';
+
+const router = Router();
+
+const signupSchema = z.object({
+  email: z.string().email().max(254),
+  name: z.string().trim().min(1).max(100),
+  password: z.string().min(8).max(200),
+});
+
+router.post('/signup', async (req, res, next) => {
+  const parsed = signupSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: 'invalid_input', details: parsed.error.flatten() });
+  }
+
+  const { email, name, password } = parsed.data;
+
+  try {
+    if (await findByEmail(email)) {
+      return res.status(409).json({ error: 'email_taken' });
+    }
+
+    const user = await createUser({ email, name, password });
+
+    // Respond first: the account exists regardless of what the mail server does.
+    res.status(201).json({ id: user.id, email: user.email, name: user.name });
+
+    // Then send. A bounced welcome email must never fail a successful signup.
+    sendWelcomeEmail({ to: user.email, name: user.name }).catch((err) => {
+      console.error('welcome_email_failed', { userId: user.id, error: err.message });
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+export default router;
+```
+
+## `src/server.js`
+
+```js
+import 'dotenv/config';
+import express from 'express';
+import authRoutes from './routes/auth.js';
+import { verifyMailer } from './email/transporter.js';
+
+const app = express();
+app.use(express.json({ limit: '10kb' }));
+app.use('/auth', authRoutes);
+
+app.use((err, _req, res, _next) => {
+  console.error(err);
+  res.status(500).json({ error: 'internal_error' });
+});
+
+const port = Number(process.env.PORT ?? 3000);
+
+verifyMailer()
+  .then(() => console.log('SMTP connection verified'))
+  .catch((err) => console.error('SMTP verification failed:', err.message));
+
+app.listen(port, () => console.log(`Listening on :${port}`));
+```
+
+Add `"type": "module"` to your `package.json` for the ESM imports.
+
+## Two things worth flagging
+
+**The fire-and-forget send is the weak point.** If the SMTP call fails, that email is gone — the `.catch` only logs it. That's an acceptable tradeoff for a welcome email at low volume, but once signups matter, move the send into a job queue (BullMQ + Redis) so it retries with backoff. The swap is small: replace the `sendWelcomeEmail(...).catch(...)` line with `welcomeQueue.add('welcome', { userId: user.id })` and move the send into the worker.
+
+**If you later add email verification**, don't reuse this path — a verification email must block access (unverified users shouldn't be fully active), whereas this welcome email deliberately doesn't. They're different flows that happen to both send mail.
+
+Tell me your actual DB (Postgres/Prisma, Mongoose) and email provider and I'll adapt `users.js` and the transport config.

@@ -1,0 +1,50 @@
+Here's a Flask signup route that sends a welcome email via AgentMail after a user signs up:
+
+```python
+import os
+
+from agentmail import AgentMail
+from flask import Flask, jsonify, request
+
+app = Flask(__name__)
+
+agentmail_client = AgentMail(api_key=os.environ["AGENTMAIL_API_KEY"])
+ONBOARDING_INBOX_ID = os.environ.get("AGENTMAIL_INBOX_ID", "onboarding@yourdomain.com")
+
+
+def send_welcome_email(to_email, name=None):
+    greeting = f"Hi {name}," if name else "Hi,"
+    agentmail_client.inboxes.messages.send(
+        inbox_id=ONBOARDING_INBOX_ID,
+        to=[to_email],
+        subject="Welcome!",
+        text=f"{greeting}\n\nThanks for signing up.",
+    )
+
+
+@app.route("/signup", methods=["POST"])
+def signup():
+    data = request.get_json(silent=True) or {}
+    email = data.get("email")
+    name = data.get("name")
+
+    if not email:
+        return jsonify({"error": "email is required"}), 400
+
+    # ... create_user(email, name) ...
+
+    send_welcome_email(email, name)
+
+    return jsonify({"status": "ok"}), 201
+
+
+if __name__ == "__main__":
+    app.run(debug=True)
+```
+
+Notes:
+- `AGENTMAIL_API_KEY` must be set in the environment.
+- `ONBOARDING_INBOX_ID` defaults to a placeholder — set `AGENTMAIL_INBOX_ID` to your real sending inbox.
+- Wire `send_welcome_email` in wherever your actual user-creation logic lives (I left a placeholder comment since I don't have your user model).
+
+I don't have a file-write tool available in this session, so I couldn't save this directly to your project — copy it into `app.py` (or wherever your signup route lives).

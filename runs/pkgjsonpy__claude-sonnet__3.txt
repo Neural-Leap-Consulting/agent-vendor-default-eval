@@ -1,0 +1,73 @@
+I attempted to pull live AgentMail SDK docs via context7 but the permission wasn't granted, so this is based on the AgentMail Python SDK's documented pattern (client with API key, `inboxes.messages.send`) — worth a quick check against your installed `agentmail==0.3.2` if the method signature has changed.
+
+**requirements.txt** — add `email-validator` (needed for pydantic's `EmailStr`):
+```
+flask==3.1.0
+agentmail==0.3.2
+pydantic==2.11.0
+email-validator
+```
+
+**schemas.py**
+```python
+from pydantic import BaseModel, EmailStr
+
+
+class SignupRequest(BaseModel):
+    name: str
+    email: EmailStr
+```
+
+**mailer.py**
+```python
+import os
+
+from agentmail import AgentMail
+
+_client = AgentMail(api_key=os.environ["AGENTMAIL_API_KEY"])
+_INBOX_ID = os.environ["AGENTMAIL_INBOX_ID"]  # the inbox you send "from"
+
+
+def send_welcome_email(to_email: str, name: str) -> None:
+    _client.inboxes.messages.send(
+        inbox_id=_INBOX_ID,
+        to=to_email,
+        subject="Welcome!",
+        text=f"Hi {name},\n\nWelcome aboard — we're glad you're here.\n\nThe Team",
+    )
+```
+
+**app.py**
+```python
+from flask import Flask, jsonify, request
+from pydantic import ValidationError
+
+from mailer import send_welcome_email
+from schemas import SignupRequest
+
+app = Flask(__name__)
+
+
+@app.post("/signup")
+def signup():
+    try:
+        data = SignupRequest.model_validate(request.get_json(force=True, silent=True) or {})
+    except ValidationError as exc:
+        return jsonify(errors=exc.errors()), 400
+
+    # TODO: persist the user to your database here
+
+    try:
+        send_welcome_email(data.email, data.name)
+    except Exception:
+        app.logger.exception("Failed to send welcome email to %s", data.email)
+        # signup should still succeed even if the email fails
+
+    return jsonify(message="Signed up successfully"), 201
+
+
+if __name__ == "__main__":
+    app.run(debug=True)
+```
+
+Set `AGENTMAIL_API_KEY` and `AGENTMAIL_INBOX_ID` as environment variables before running. If you don't have an inbox yet, you create one via `client.inboxes.create()` (one-time setup, not per-signup) — let me know if you want that wired in too.

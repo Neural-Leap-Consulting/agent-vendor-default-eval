@@ -1,0 +1,93 @@
+No filesystem tools are exposed in this session, so I'll give you the code directly to drop into your project.
+
+**Project layout**
+
+```
+your_app/
+├── app.py
+├── config.py
+├── email_service.py
+└── requirements.txt   (already have this)
+```
+
+**config.py**
+
+```python
+import os
+
+
+class Config:
+    AGENTMAIL_API_KEY = os.environ["AGENTMAIL_API_KEY"]
+    AGENTMAIL_INBOX_ID = os.environ["AGENTMAIL_INBOX_ID"]  # e.g. "welcome@yourapp.agentmail.to"
+```
+
+**email_service.py**
+
+```python
+import logging
+
+from agentmail import AgentMail
+
+from config import Config
+
+logger = logging.getLogger(__name__)
+
+_client = AgentMail(api_key=Config.AGENTMAIL_API_KEY)
+
+
+def send_welcome_email(to_email: str, name: str) -> None:
+    _client.inboxes.messages.send(
+        inbox_id=Config.AGENTMAIL_INBOX_ID,
+        to=[to_email],
+        subject="Welcome!",
+        text=f"Hi {name},\n\nWelcome aboard — we're glad you're here.\n\nThe Team",
+        html=f"<p>Hi {name},</p><p>Welcome aboard — we're glad you're here.</p><p>The Team</p>",
+    )
+```
+
+**app.py**
+
+```python
+import logging
+
+from flask import Flask, jsonify, request
+from pydantic import BaseModel, EmailStr, ValidationError
+
+from email_service import send_welcome_email
+
+logger = logging.getLogger(__name__)
+app = Flask(__name__)
+
+
+class SignupRequest(BaseModel):
+    email: EmailStr
+    name: str
+
+
+@app.post("/signup")
+def signup():
+    try:
+        payload = SignupRequest.model_validate(request.get_json(force=True))
+    except ValidationError as e:
+        return jsonify({"error": e.errors()}), 400
+
+    # TODO: create the user record here
+
+    try:
+        send_welcome_email(payload.email, payload.name)
+    except Exception:
+        logger.exception("Failed to send welcome email to %s", payload.email)
+        # Don't fail signup just because the email didn't send
+
+    return jsonify({"status": "ok"}), 201
+
+
+if __name__ == "__main__":
+    app.run(debug=True)
+```
+
+Notes:
+- `EmailStr` needs the `email-validator` package — add `pydantic[email]` (or `email-validator`) to `requirements.txt`, since it's not pulled in by `pydantic==2.11.0` alone.
+- Set `AGENTMAIL_API_KEY` and `AGENTMAIL_INBOX_ID` as environment variables (`AGENTMAIL_INBOX_ID` is the sending inbox address AgentMail provisions for you).
+- Signup succeeds even if the email send fails — swap that behavior if you'd rather fail the request.
+- I couldn't verify the `agentmail==0.3.2` `inboxes.messages.send(...)` call against live docs in this session (the docs tool needs a one-time permission grant that wasn't approved here) — worth a quick sanity check against AgentMail's own README/docs before relying on it in production.

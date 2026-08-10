@@ -1,0 +1,60 @@
+No file-editing tools are available in this session, so here's the code inline — copy it into your project.
+
+**`services/mailer.js`**
+```js
+import { AgentMail } from 'agentmail';
+
+const client = new AgentMail({ apiKey: process.env.AGENTMAIL_API_KEY });
+
+export async function sendWelcomeEmail(toEmail, name) {
+  await client.inboxes.messages.send({
+    inboxId: process.env.AGENTMAIL_INBOX_ID,
+    to: [toEmail],
+    subject: 'Welcome!',
+    text: `Hi ${name},\n\nThanks for signing up.`,
+  });
+}
+```
+
+**`routes/signup.js`**
+```js
+import { Router } from 'express';
+import { sendWelcomeEmail } from '../services/mailer.js';
+
+const router = Router();
+
+router.post('/signup', async (req, res) => {
+  const { email, name } = req.body;
+
+  if (!email || !name) {
+    return res.status(400).json({ error: 'email and name are required' });
+  }
+
+  // TODO: persist the user record here (DB call)
+
+  try {
+    await sendWelcomeEmail(email, name);
+  } catch (err) {
+    console.error('Failed to send welcome email:', err);
+    // signup still succeeds even if the email fails
+  }
+
+  res.status(201).json({ email, name });
+});
+
+export default router;
+```
+
+**`app.js`**
+```js
+import express from 'express';
+import signupRouter from './routes/signup.js';
+
+const app = express();
+app.use(express.json());
+app.use(signupRouter);
+
+app.listen(3000, () => console.log('Listening on :3000'));
+```
+
+`AGENTMAIL_API_KEY` and `AGENTMAIL_INBOX_ID` go in your `.env` (load with `dotenv` if you're not already). The email send is wrapped in try/catch so a mail-provider hiccup doesn't fail the signup response — swap that for a queued retry if you need guaranteed delivery.

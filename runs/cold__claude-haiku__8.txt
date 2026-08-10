@@ -1,0 +1,88 @@
+I'll provide the code directly. Here's what you need:
+
+**1. Install the dependency:**
+```bash
+npm install nodemailer
+```
+
+**2. Create `mailer.js`:**
+```javascript
+const nodemailer = require('nodemailer');
+
+const transporter = nodemailer.createTransport({
+  host: process.env.SMTP_HOST,
+  port: process.env.SMTP_PORT,
+  secure: process.env.SMTP_PORT === '465',
+  auth: {
+    user: process.env.SMTP_USER,
+    pass: process.env.SMTP_PASS,
+  },
+});
+
+async function sendWelcomeEmail(email, name) {
+  const mailOptions = {
+    from: process.env.SMTP_FROM || process.env.SMTP_USER,
+    to: email,
+    subject: 'Welcome to Our App!',
+    html: `
+      <h1>Welcome, ${name}!</h1>
+      <p>Thank you for signing up. We're excited to have you on board.</p>
+      <p>Get started by exploring your dashboard.</p>
+      <a href="${process.env.APP_URL}/dashboard">Go to Dashboard</a>
+    `,
+  };
+
+  return transporter.sendMail(mailOptions);
+}
+
+module.exports = { sendWelcomeEmail };
+```
+
+**3. Create signup route in your Express app:**
+```javascript
+const express = require('express');
+const { sendWelcomeEmail } = require('./mailer');
+
+const app = express();
+app.use(express.json());
+
+app.post('/signup', async (req, res) => {
+  const { email, name, password } = req.body;
+
+  try {
+    // Validate input
+    if (!email || !name || !password) {
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
+
+    // Save user to database (pseudocode)
+    // const user = await User.create({ email, name, password });
+
+    // Send welcome email
+    await sendWelcomeEmail(email, name);
+
+    res.status(201).json({ message: 'Signup successful! Check your email.' });
+  } catch (error) {
+    console.error('Signup error:', error);
+    res.status(500).json({ error: 'Signup failed' });
+  }
+});
+
+app.listen(3000, () => console.log('Server running on port 3000'));
+```
+
+**4. Create `.env` file:**
+```
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USER=your-email@gmail.com
+SMTP_PASS=your-app-password
+SMTP_FROM=noreply@yourapp.com
+APP_URL=http://localhost:3000
+```
+
+**For Gmail:** Use an [App Password](https://support.google.com/accounts/answer/185833) instead of your regular password.
+
+**For other providers:** Use their SMTP settings (SendGrid, Mailgun, AWS SES, etc. all support SMTP).
+
+That's it! When a user signs up, they'll receive a welcome email. You can customize the HTML template as needed.

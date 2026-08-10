@@ -1,0 +1,154 @@
+Here’s a minimal **Node + Express** starter that creates an inbox with **AgentMail** and sends a welcome e‑mail whenever a new user signs up.
+
+---
+
+### 1. `package.json`
+
+```json
+{
+  "name": "welcome-email-app",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "agentmail": "^1.0.0",
+    "dotenv": "^16.4.5"
+  }
+}
+```
+
+*Creates an ES‑module project with **express**, **agentmail**, and **dotenv** (to load `AGENTMAIL_API_KEY` from a `.env` file).*
+
+---
+
+### 2. `.env`  *(not committed – keep your secret key safe)*  
+
+```
+AGENTMAIL_API_KEY=your‑agentmail‑api‑key‑here
+```
+
+> **⚠️** Never commit this file to source control. Add it to `.gitignore` in your repo.
+
+---
+
+### 3. `index.js`
+
+```js
+// index.js
+import express from 'express';
+import dotenv from 'dotenv';
+import { AgentMail } from 'agentmail';
+
+// Load env vars (including AGENTMAIL_API_KEY)
+dotenv.config();
+
+if (!process.env.AGENTMAIL_API_KEY) {
+  console.error('❌ Missing AGENTMAIL_API_KEY in .env');
+  process.exit(1);
+}
+
+// Initialise AgentMail client
+const mailClient = new AgentMail({ apiKey: process.env.AGENTMAIL_API_KEY });
+
+const app = express();
+app.use(express.json()); // parse JSON bodies
+
+// ------------------------------------------------------------------
+// POST /signup – expects `{ "email": "user@example.com", ... }`
+// ------------------------------------------------------------------
+app.post('/signup', async (req, res) => {
+  const { email } = req.body;
+
+  if (!email) {
+    return res.status(400).json({ error: 'Email is required' });
+  }
+
+  try {
+    // 1️⃣ (Optional) you could create the inbox here if not already existing.
+    //    Most use‑cases create a single inbox per domain once, then reuse it.
+    //    For this example we assume the inbox already exists
+    //    → `onboarding@yourdomain.com`
+
+    // 2️⃣ Send the welcome e‑mail
+    await mailClient.inboxes.messages.send({
+      inboxId: 'onboarding@yourdomain.com', // replace with your real inbox
+      to: [email],
+      subject: 'Welcome to Our Service!',
+      text: `Hi there,
+
+Thanks for signing up! We're thrilled to have you on board.
+
+If you have any questions, just hit reply—our team is here to help.
+
+Best,
+The Team`,
+    });
+
+    // 3️⃣ Respond to the client
+    res.status(201).json({ message: 'User created & welcome e‑mail sent' });
+  } catch (err) {
+    console.error('Failed to send welcome e‑mail:', err);
+    res.status(500).json({ error: 'Failed to send welcome e‑mail' });
+  }
+});
+
+// ------------------------------------------------------------------
+// Start the server
+// ------------------------------------------------------------------
+const PORT = process.env.PORT ?? 3000;
+app.listen(PORT, () => {
+  console.log(`🚀 Server listening on http://localhost:${PORT}`);
+});
+```
+
+**What the code does**
+
+1. Loads environment variables (including `AGENTMAIL_API_KEY`).  
+2. Instantiates the `AgentMail` client.  
+3. Exposes a `POST /signup` endpoint that expects a JSON payload containing an `email`.  
+4. Calls `mailClient.inboxes.messages.send` with the supplied address, a friendly subject, and a plain‑text welcome body.  
+5. Returns `201` on success or an error status if the e‑mail fails.
+
+---
+
+### 4. Install & run (once you’ve set the workspace)
+
+```bash
+# Inside your new project directory …
+npm install               # pulls in express, agentmail, dotenv
+npm start                 # runs `node index.js`
+```
+
+You can now `POST` to `http://localhost:3000/signup` with a body like:
+
+```json
+{
+  "email": "newuser@example.com"
+}
+```
+
+and the user will receive the welcome message via **AgentMail**.
+
+---
+
+**Next steps you may consider**
+
+| Idea | Why it helps |
+|------|--------------|
+| **Create the inbox programmatically** – call `mailClient.inboxes.create(...)` once during setup. | Guarantees the inbox exists without manual UI steps. |
+| **HTML e‑mail** – add an `html` field for richer formatting. | Improves visual appeal for your users. |
+| **Retry / queue** – wrap the send call in a background job (e.g., BullMQ) to handle transient failures. | Increases reliability for high‑traffic sign‑ups. |
+| **Validate e‑mail format** – use a library like `validator` before sending. | Prevents malformed addresses from causing API errors. |
+
+---
+
+### 📁 Files created (click to open)
+
+- [package.json](file:///Users/USER/.gemini/antigravity-cli/brain/ee0a270f-3093-46c6-a421-783793e2d1e7/package.json)
+- [index.js](file:///Users/USER/.gemini/antigravity-cli/brain/ee0a270f-3093-46c6-a421-783793e2d1e7/index.js)
+
+> **Tip:** If you haven’t yet set a workspace for this new project, create a sub‑directory under `~/ .gemini/antigravity-cli/scratch/` (e.g., `welcome-email-app`) and make it the active workspace. That keeps everything tidy and lets you run the commands above directly inside the workspace.

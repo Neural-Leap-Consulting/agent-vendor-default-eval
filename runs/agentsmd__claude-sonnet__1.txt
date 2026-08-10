@@ -1,0 +1,83 @@
+A couple of things before the code:
+
+- I don't have filesystem tools in this session (no Read/Write/Edit/Bash), so I can't write these files into your repo directly — I'm giving you the full code to paste in.
+- I tried to pull current AgentMail SDK docs via context7 to verify exact method names, but that tool isn't authorized in this session. The shape below (`AgentMailClient`, `inboxes.messages.send`) matches AgentMail's published Node SDK from what I know, but **verify method names against `node_modules/agentmail`'s README/types before relying on it**, since I couldn't confirm live.
+
+```js
+// lib/agentmail.js
+const { AgentMailClient } = require("agentmail");
+
+const agentmail = new AgentMailClient({
+  apiKey: process.env.AGENTMAIL_API_KEY,
+});
+
+module.exports = { agentmail };
+```
+
+```js
+// services/sendWelcomeEmail.js
+const { agentmail } = require("../lib/agentmail");
+
+async function sendWelcomeEmail({ to, name }) {
+  await agentmail.inboxes.messages.send(process.env.AGENTMAIL_INBOX_ID, {
+    to: [to],
+    subject: "Welcome!",
+    text: `Hi ${name || "there"},\n\nWelcome aboard — we're glad you're here.\n\n— The Team`,
+    html: `<p>Hi ${name || "there"},</p><p>Welcome aboard — we're glad you're here.</p><p>— The Team</p>`,
+  });
+}
+
+module.exports = { sendWelcomeEmail };
+```
+
+```js
+// routes/signup.js
+const express = require("express");
+const { sendWelcomeEmail } = require("../services/sendWelcomeEmail");
+// const { createUser } = require("../models/user"); // your existing user creation logic
+
+const router = express.Router();
+
+router.post("/signup", async (req, res) => {
+  const { email, name, password } = req.body;
+
+  if (!email || !password) {
+    return res.status(400).json({ error: "email and password are required" });
+  }
+
+  const user = await createUser({ email, name, password });
+
+  try {
+    await sendWelcomeEmail({ to: user.email, name: user.name });
+  } catch (err) {
+    console.error("Failed to send welcome email:", err);
+  }
+
+  res.status(201).json({ user: { id: user.id, email: user.email, name: user.name } });
+});
+
+module.exports = router;
+```
+
+```js
+// app.js
+const express = require("express");
+const signupRouter = require("./routes/signup");
+
+const app = express();
+app.use(express.json());
+app.use("/api", signupRouter);
+
+const port = process.env.PORT || 3000;
+app.listen(port, () => console.log(`Listening on ${port}`));
+```
+
+```
+# .env
+AGENTMAIL_API_KEY=your-agentmail-api-key
+AGENTMAIL_INBOX_ID=your-sending-inbox-id
+```
+
+Install with `npm install agentmail`. The welcome email failure is caught and logged rather than failing the signup response — swap that behavior if you want signup to hard-fail when email delivery fails.
+
+If you want this actually written into your project, point me at the file tree (or paste your existing signup handler) and I'll adapt it to fit — or run this in a session where I have file access.

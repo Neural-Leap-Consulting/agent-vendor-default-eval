@@ -1,0 +1,214 @@
+Below is a minimal, **production‑ready** example of a Node‑.js + Express app that sends a welcome e‑mail whenever a new user signs up.
+
+---  
+
+## 1️⃣ Project Structure  
+
+```
+my‑express‑app/
+├─ src/
+│  ├─ server.js          # Express server + sign‑up endpoint
+│  └─ mailer.js          # Helper that sends the e‑mail
+├─ .env                   # Environment variables (SMTP credentials)
+└─ package.json
+```
+
+> **Tip:** Keep the e‑mail credentials out of source control – store them in `.env` (git‑ignore it).
+
+---
+
+## 2️⃣ `package.json`
+
+```json
+{
+  "name": "my-express-app",
+  "version": "1.0.0",
+  "description": "Express app that sends a welcome e‑mail on sign‑up",
+  "main": "src/server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "nodemon src/server.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "nodemailer": "^6.9.15"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.4"
+  }
+}
+```
+
+> Install everything with:  
+
+```bash
+npm install
+```
+
+---
+
+## 3️⃣ `.env`  *(**do not** commit this file)*  
+
+```dotenv
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USER=your-email@example.com
+SMTP_PASS=your‑app‑password-or‑smtp‑token
+FROM_NAME=Your App Name
+FROM_EMAIL=no-reply@example.com
+```
+
+You can generate an *app password* for Gmail or use any other SMTP provider (SendGrid, Mailgun, etc.).  
+
+---
+
+## 4️⃣ `src/mailer.js`
+
+```javascript
+// src/mailer.js
+import nodemailer from "nodemailer";
+import dotenv from "dotenv";
+
+dotenv.config();
+
+const transporter = nodemailer.createTransport({
+  host: process.env.SMTP_HOST,
+  port: Number(process.env.SMTP_PORT),
+  secure: false,           // true for 465, false for other ports
+  auth: {
+    user: process.env.SMTP_USER,
+    pass: process.env.SMTP_PASS,
+  },
+});
+
+/**
+ * Send a welcome e‑mail to the given address.
+ *
+ * @param {string} toEmail   Recipient address
+ * @param {string} toName    Recipient's display name (optional)
+ */
+export async function sendWelcomeEmail(toEmail, toName = "") {
+  const mailOptions = {
+    from: `"${process.env.FROM_NAME}" <${process.env.FROM_EMAIL}>`,
+    to: toEmail,
+    subject: "Welcome to Our Service! 🎉",
+    html: `
+      <h1>Hello${toName ? ` ${toName}` : ""}!</h1>
+      <p>Thank you for signing up. We're thrilled to have you on board.</p>
+      <p>
+        If you have any questions, feel free to reply to this e‑mail or
+        visit our <a href="https://example.com/support">support page</a>.
+      </p>
+      <hr/>
+      <small>© ${new Date().getFullYear()} ${process.env.FROM_NAME}</small>
+    `,
+  };
+
+  try {
+    const info = await transporter.sendMail(mailOptions);
+    console.log("✅ Welcome e‑mail sent:", info.messageId);
+    return info;
+  } catch (err) {
+    console.error("❌ Failed to send welcome e‑mail:", err);
+    throw err;
+  }
+}
+```
+
+---
+
+## 5️⃣ `src/server.js`
+
+```javascript
+// src/server.js
+import express from "express";
+import bodyParser from "body-parser";
+import { sendWelcomeEmail } from "./mailer.js";
+import dotenv from "dotenv";
+
+dotenv.config();
+
+const app = express();
+app.use(bodyParser.json());   // parse JSON bodies
+
+// Mock in‑memory users DB (replace with real DB in production)
+const users = [];
+
+/**
+ * POST /signup
+ * Body: { "email": "...", "name": "..." }
+ */
+app.post("/signup", async (req, res) => {
+  const { email, name } = req.body;
+
+  if (!email) {
+    return res.status(400).json({ error: "Missing e‑mail address." });
+  }
+
+  // ---- 1️⃣ Persist the user (replace with real persistence) ----
+  const newUser = { id: users.length + 1, email, name };
+  users.push(newUser);
+  console.log("📋 New user registered:", newUser);
+
+  // ---- 2️⃣ Send welcome e‑mail (fire‑and‑forget) ----
+  try {
+    await sendWelcomeEmail(email, name);
+    // Respond *after* the e‑mail is queued/sent – you can also respond earlier if you don’t want to block.
+    res.status(201).json({ message: "User created & welcome e‑mail sent." });
+  } catch (err) {
+    // If sending fails we still created the account; decide if you want to rollback.
+    res.status(201).json({
+      message: "User created but e‑mail could not be sent.",
+      error: err.message,
+    });
+  }
+});
+
+// Health check endpoint
+app.get("/health", (_, res) => res.json({ status: "ok" }));
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`🚀 Server listening on http://localhost:${PORT}`);
+});
+```
+
+---
+
+## 6️⃣ Run the app  
+
+```bash
+npm run dev   # uses nodemon for auto‑restart during development
+# or:
+npm start      # production start
+```
+
+Visit `POST http://localhost:3000/signup` with a JSON payload, e.g.:
+
+```json
+{
+  "email": "newuser@example.com",
+  "name": "New User"
+}
+```
+
+You should see a **welcome e‑mail** land in the inbox of `newuser@example.com`.
+
+---
+
+## 📣 What to customise  
+
+| Item | Why you may change it | Where |
+|------|----------------------|-------|
+| **SMTP provider** | Use SendGrid, Mailgun, Amazon SES, etc. | `src/mailer.js` (transport configuration) |
+| **Email template** | Brand‑specific styling, localized text | `mailer.js` → `html` field |
+| **User persistence** | Real DB (PostgreSQL, MongoDB, etc.) | Replace the `users` array in `server.js` |
+| **Rate‑limiting / retries** | Prevent abuse & handle transient SMTP failures | Wrap `sendWelcomeEmail` with a retry library (e.g., `p-retry`) |
+
+---
+
+## 🎉 Done!
+
+You now have a complete, ready‑to‑run Express server that automatically sends a polished welcome e‑mail every time someone signs up. Feel free to extend it with validation, JWT auth, or a proper database – the core email‑sending logic is already in place.

@@ -1,0 +1,88 @@
+Here's a complete implementation using Flask-Mail, with the email sent in a background thread so signup doesn't block on SMTP.
+
+**Install:**
+```bash
+pip install Flask-Mail
+```
+
+**`app.py`**
+```python
+import os
+import threading
+from flask import Flask, request, jsonify
+from flask_mail import Mail, Message
+from werkzeug.security import generate_password_hash
+
+app = Flask(__name__)
+
+# --- Mail config (use environment variables, never hardcode credentials) ---
+app.config["MAIL_SERVER"] = os.environ.get("MAIL_SERVER", "smtp.gmail.com")
+app.config["MAIL_PORT"] = int(os.environ.get("MAIL_PORT", 587))
+app.config["MAIL_USE_TLS"] = True
+app.config["MAIL_USERNAME"] = os.environ["MAIL_USERNAME"]
+app.config["MAIL_PASSWORD"] = os.environ["MAIL_PASSWORD"]
+app.config["MAIL_DEFAULT_SENDER"] = os.environ.get(
+    "MAIL_DEFAULT_SENDER", app.config["MAIL_USERNAME"]
+)
+
+mail = Mail(app)
+
+
+def send_async_email(app, msg):
+    with app.app_context():
+        try:
+            mail.send(msg)
+        except Exception as e:
+            app.logger.error(f"Failed to send welcome email to {msg.recipients}: {e}")
+
+
+def send_welcome_email(to_email, username):
+    msg = Message(
+        subject="Welcome!",
+        recipients=[to_email],
+        body=f"Hi {username},\n\nThanks for signing up. We're glad to have you!",
+        html=f"<p>Hi {username},</p><p>Thanks for signing up. We're glad to have you!</p>",
+    )
+    thread = threading.Thread(target=send_async_email, args=(app, msg))
+    thread.start()
+
+
+@app.route("/signup", methods=["POST"])
+def signup():
+    data = request.get_json(silent=True) or {}
+    email = data.get("email")
+    username = data.get("username")
+    password = data.get("password")
+
+    if not email or not username or not password:
+        return jsonify({"error": "email, username, and password are required"}), 400
+
+    # --- Replace with your actual user creation logic ---
+    # if User.query.filter_by(email=email).first():
+    #     return jsonify({"error": "user already exists"}), 409
+    # user = User(email=email, username=username, password_hash=generate_password_hash(password))
+    # db.session.add(user)
+    # db.session.commit()
+
+    send_welcome_email(email, username)
+
+    return jsonify({"message": "Signup successful"}), 201
+
+
+if __name__ == "__main__":
+    app.run(debug=True)
+```
+
+**Required environment variables:**
+```bash
+export MAIL_USERNAME="you@example.com"
+export MAIL_PASSWORD="your-app-password"   # use an app password, not your real password
+```
+
+Notes:
+- The email send happens on a background thread so a slow/failed SMTP call doesn't delay the HTTP response or fail signup.
+- For production with any real volume, swap the thread for a task queue (Celery/RQ/Huey) so email sending survives process restarts and gets retries — the thread approach is fine for low-traffic apps or prototypes.
+- Never commit SMTP credentials; load them from env vars or a secrets manager as shown.
+- If you're not using Gmail, just point `MAIL_SERVER`/`MAIL_PORT` at your provider (SendGrid, Mailgun, SES, etc.) — SES/SendGrid/Mailgun also have their own SDKs if you'd rather not go through SMTP.
+
+Let me know if you're using a specific email provider (SendGrid, SES, Mailgun) or an async task queue already — I can tailor this to that setup.

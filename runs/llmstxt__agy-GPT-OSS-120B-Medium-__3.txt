@@ -1,0 +1,217 @@
+Here’s a minimal **Node / Express** example that sends a welcome email with **AgentMail** every time a new user signs up.
+
+```js
+// app.js
+import express from 'express';
+import dotenv from 'dotenv';
+import { AgentMail } from 'agentmail';
+
+// Load environment variables from .env (make sure AGENTMAIL_API_KEY is set)
+dotenv.config();
+
+const app = express();
+app.use(express.json()); // parse JSON bodies
+
+// Initialise the AgentMail client once
+const mailClient = new AgentMail({ apiKey: process.env.AGENTMAIL_API_KEY });
+
+/**
+ * POST /signup
+ * Expected body: { email: string, name?: string, ... }
+ */
+app.post('/signup', async (req, res) => {
+  const { email, name } = req.body;
+
+  // TODO: Add your real user‑creation logic here (DB insert, validation, etc.)
+  // For this example we just assume the user is successfully created.
+
+  try {
+    // Send the welcome email
+    await mailClient.inboxes.messages.send({
+      inboxId: 'onboarding@yourdomain.com',   // the inbox you created in AgentHere’s a minimal but production‑ready example that wires **AgentMail** into a Node.js Express signup flow.
+
+---
+
+## 1. Project layout
+
+Create a new folder for the app (e.g. `agentmail‑example`).  
+Your directory will look like this:
+
+```
+agentmail-example/
+├─ src/
+│  ├─ app.js           # Express server & signup route
+│  └─ emailService.js  # Wrapper around AgentMail
+├─ .env                 # Environment variables (API key, etc.)
+└─ package.json
+```
+
+> **Tip:** Set `agentmail‑example` as your active workspace so all file operations stay inside it.
+
+---
+
+## 2. `package.json`
+
+```json
+{
+  "name": "agentmail-example",
+  "version": "1.0.0",
+  "main": "src/app.js",
+  "type": "module",
+  "scripts": {
+    "dev": "node src/app.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "agentmail": "^1.0.0",
+    "dotenv": "^16.4.5"
+  }
+}
+```
+
+Run `npm install` inside the folder to pull in the dependencies.
+
+---
+
+## 3. `.env`
+
+```dotenv
+# Put your AgentMail API key here – keep it out of source control!
+AGENTMAIL_API_KEY=your‑agentmail‑api‑key
+PORT=3000
+```
+
+> **Security note:** `.env` should be added to `.gitignore` (the default generated file already does this).
+
+---
+
+## 4. `src/emailService.js`
+
+```javascript
+// src/emailService.js
+import { AgentMail } from 'agentmail';
+import dotenv from 'dotenv';
+
+dotenv.config(); // Load API key from .env
+
+// Initialise the AgentMail client once
+const client = new AgentMail({ apiKey: process.env.AGENTMAIL_API_KEY });
+
+/**
+ * Sends a welcome email to the newly‑registered user.
+ *
+ * @param {string} inboxId   - The AgentMail inbox to send from (e.g. onboarding@yourdomain.com)
+ * @param {string} to        - Recipient email address
+ * @param {string} name      - Recipient name (optional, used in the email body)
+ */
+export async function sendWelcomeEmail({ inboxId, to, name = '' }) {
+  try {
+    await client.inboxes.messages.send({
+      inboxId,
+      to: [to],
+      subject: 'Welcome to Our Service!',
+      // You can customise the body – plain‑text is fine for a quick welcome.
+      text: `Hi ${name ? name + ',' : ''}
+
+Thank you for signing up! We’re thrilled to have you on board.
+
+If you have any questions, just hit reply to this email.
+
+Best,
+The Team`
+    });
+    console.log(`✅ Welcome email sent to ${to}`);
+  } catch (err) {
+    console.error('❌ Failed to send welcome email:', err);
+    // Propagate the error so the route can react appropriately
+    throw err;
+  }
+}
+```
+
+---
+
+## 5. `src/app.js`
+
+```javascript
+// src/app.js
+import express from 'express';
+import { sendWelcomeEmail } from './emailService.js';
+import dotenv from 'dotenv';
+
+dotenv.config();
+
+const app = express();
+app.use(express.json()); // Parse JSON bodies
+
+// Example signup payload:
+// {
+//   "email": "user@example.com",
+//   "name": "Jane Doe"
+// }
+app.post('/signup', async (req, res) => {
+  const { email, name } = req.body;
+
+  if (!email) {
+    return res.status(400).json({ error: 'Email is required' });
+  }
+
+  // 👉 Here you would normally create the user in your DB.
+  // For this example we just simulate success.
+  console.log(`🧑 New user signup: ${email}${name ? ` (${name})` : ''}`);
+
+  try {
+    await sendWelcomeEmail({
+      inboxId: 'onboarding@yourdomain.com',
+      to: email,
+      name: name || ''
+    });
+
+    // Respond to the client after the email is queued/sent.
+    res.status(201).json({ message: 'User created and welcome email sent' });
+  } catch (err) {
+    // If the email fails we still want the user created, but we inform the client.
+    res
+      .status(500)
+      .json({ error: 'User created, but failed to send welcome email' });
+  }
+});
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`🚀 Express server listening on http://localhost:${PORT}`);
+});
+```
+
+---
+
+## 6. Running the app
+
+```bash
+cd agentmail-example
+npm run dev
+```
+
+Send a test request (e.g. with **curl** or **Postman**):
+
+```bash
+curl -X POST http://localhost:3000/signup \
+  -H "Content-Type: application/json" \
+  -d '{"email":"newuser@example.com","name":"New User"}'
+```
+
+You should see the 👆 console logs and receive the welcome email in the inbox you specified.
+
+---
+
+### What you get out of this scaffold
+
+| Feature | How it’s handled |
+|--------|-------------------|
+| **Environment safety** | API key lives only in `.env` & is never committed. |
+| **Separation of concerns** | Email logic lives in `emailService.js`; the route stays clean. |
+| **Error handling** | Propagates email failures to the route, allowing graceful responses. |
+| **Extensibility** | Add more email templates or queueing (e.g., BullMQ) without touching the route. |
+| **Modern syntax** | ES‑module (`"type":"module"`), async/await, and clean logging. |
+
+Feel free to expand this skeleton (validation, DB integration, HTML email templates, etc.). If you need further help—e.g., adding a templating engine or wiring a real database—just let me know!

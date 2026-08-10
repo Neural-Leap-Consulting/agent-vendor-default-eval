@@ -1,0 +1,80 @@
+Here's the complete setup for sending welcome emails:
+
+**1. Install Nodemailer:**
+```bash
+npm install nodemailer
+```
+
+**2. Create `emailService.js`:**
+```javascript
+const nodemailer = require('nodemailer');
+
+const transporter = nodemailer.createTransport({
+  host: process.env.EMAIL_HOST,
+  port: process.env.EMAIL_PORT,
+  secure: process.env.EMAIL_SECURE === 'true',
+  auth: {
+    user: process.env.EMAIL_USER,
+    pass: process.env.EMAIL_PASSWORD,
+  },
+});
+
+async function sendWelcomeEmail(email, name) {
+  const htmlContent = `
+    <h1>Welcome, ${name}!</h1>
+    <p>Thank you for signing up. We're excited to have you on board.</p>
+    <p>Get started by exploring your dashboard and setting up your profile.</p>
+    <p>If you have any questions, feel free to reach out to us.</p>
+  `;
+
+  await transporter.sendMail({
+    from: process.env.EMAIL_FROM,
+    to: email,
+    subject: 'Welcome to our app!',
+    html: htmlContent,
+    text: `Welcome, ${name}!\n\nThank you for signing up. We're excited to have you on board.`,
+  });
+}
+
+module.exports = { sendWelcomeEmail };
+```
+
+**3. Add signup route to your app:**
+```javascript
+const express = require('express');
+const { sendWelcomeEmail } = require('./emailService');
+
+const app = express();
+app.use(express.json());
+
+app.post('/signup', async (req, res) => {
+  const { email, name, password } = req.body;
+
+  try {
+    // TODO: Validate input, hash password, save to database
+    // const user = await User.create({ email, name, password: hashedPassword });
+
+    // Send welcome email
+    await sendWelcomeEmail(email, name);
+
+    res.json({ success: true, message: 'Signup successful. Welcome email sent!' });
+  } catch (error) {
+    console.error('Signup error:', error);
+    res.status(500).json({ error: 'Signup failed' });
+  }
+});
+```
+
+**4. Add to `.env`:**
+```
+EMAIL_HOST=smtp.gmail.com
+EMAIL_PORT=587
+EMAIL_SECURE=false
+EMAIL_USER=your-email@gmail.com
+EMAIL_PASSWORD=your-app-password
+EMAIL_FROM=noreply@yourapp.com
+```
+
+**For Gmail:** Use an [app-specific password](https://support.google.com/accounts/answer/185833) instead of your regular password.
+
+The email will send asynchronously after signup. If you want to send it in the background without waiting, wrap `sendWelcomeEmail()` in a queue system (Bull, RabbitMQ) for better reliability.

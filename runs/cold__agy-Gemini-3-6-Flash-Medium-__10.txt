@@ -1,0 +1,139 @@
+Here is a production-ready setup for sending a welcome email when a user signs up in a Node.js Express application using **Nodemailer**.
+
+The application has been generated at:
+`/Users/USER/.gemini/antigravity-cli/scratch/express-welcome-email`
+
+> [!TIP]
+> You can set this directory as your active workspace for easier project management.
+
+---
+
+### Project Architecture & Implementation
+
+#### 1. Setup Nodemailer Transporter
+[`src/config/mailer.js`](file:///Users/USER/.gemini/antigravity-cli/scratch/express-welcome-email/src/config/mailer.js)
+```javascript
+const nodemailer = require('nodemailer');
+
+const transporter = nodemailer.createTransport({
+  host: process.env.SMTP_HOST || 'smtp.mailtrap.io',
+  port: parseInt(process.env.SMTP_PORT || '2525', 10),
+  secure: process.env.SMTP_SECURE === 'true',
+  auth: {
+    user: process.env.SMTP_USER,
+    pass: process.env.SMTP_PASS,
+  },
+});
+
+module.exports = transporter;
+```
+
+---
+
+#### 2. Welcome Email Service (HTML + Text)
+[`src/services/emailService.js`](file:///Users/USER/.gemini/antigravity-cli/scratch/express-welcome-email/src/services/emailService.js)
+```javascript
+const transporter = require('../config/mailer');
+
+async function sendWelcomeEmail({ to, name }) {
+  const from = process.env.EMAIL_FROM || '"MyApp Support" <no-reply@myapp.com>';
+  const subject = `Welcome to MyApp, ${name}! 🎉`;
+
+  const html = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+      <h2>Hi ${name},</h2>
+      <p>We're thrilled to have you on board!</p>
+      <p><a href="https://myapp.com/dashboard" style="background:#4f46e5; color:#fff; padding:10px 20px; text-decoration:none; border-radius:6px;">Go to Dashboard</a></p>
+    </div>
+  `;
+
+  const text = `Hi ${name},\n\nWelcome to MyApp! We're excited to have you on board.`;
+
+  return await transporter.sendMail({ from, to, subject, text, html });
+}
+
+module.exports = { sendWelcomeEmail };
+```
+
+---
+
+#### 3. Signup Controller (Non-blocking Email Dispatch)
+[`src/controllers/authController.js`](file:///Users/USER/.gemini/antigravity-cli/scratch/express-welcome-email/src/controllers/authController.js)
+```javascript
+const { sendWelcomeEmail } = require('../services/emailService');
+
+const users = [];
+
+async function handleSignup(req, res) {
+  try {
+    const { name, email, password } = req.body;
+
+    if (!name || !email || !password) {
+      return res.status(400).json({ error: 'Name, email, and password are required.' });
+    }
+
+    const newUser = { id: users.length + 1, name, email };
+    users.push(newUser);
+
+    // Send email asynchronously in the background so registration completes fast
+    sendWelcomeEmail({ to: email, name }).catch((err) =>
+      console.error('[Email Error] Failed to send welcome email:', err.message)
+    );
+
+    return res.status(201).json({
+      message: 'User registered successfully. Welcome email dispatched!',
+      user: { id: newUser.id, name: newUser.name, email: newUser.email },
+    });
+  } catch (error) {
+    return res.status(500).json({ error: 'Internal server error.' });
+  }
+}
+
+module.exports = { handleSignup };
+```
+
+---
+
+#### 4. Express Server Entrypoint
+[`src/server.js`](file:///Users/USER/.gemini/antigravity-cli/scratch/express-welcome-email/src/server.js)
+```javascript
+require('dotenv').config();
+const express = require('express');
+const authRoutes = require('./routes/authRoutes');
+
+const app = express();
+app.use(express.json());
+
+app.use('/api/auth', authRoutes);
+
+app.listen(process.env.PORT || 3000, () => {
+  console.log(`🚀 Server running on port ${process.env.PORT || 3000}`);
+});
+```
+
+---
+
+### Environment Configuration (`.env`)
+Create a `.env` file based on [`.env.example`](file:///Users/USER/.gemini/antigravity-cli/scratch/express-welcome-email/.env.example):
+```env
+PORT=3000
+SMTP_HOST=smtp.mailtrap.io
+SMTP_PORT=2525
+SMTP_USER=your_smtp_username
+SMTP_PASS=your_smtp_password
+EMAIL_FROM="MyApp Support <no-reply@myapp.com>"
+```
+
+### Running the App
+```bash
+npm run dev
+```
+
+Test signup via POST to `http://localhost:3000/api/auth/signup`:
+```json
+{
+  "name": "Jane Doe",
+  "email": "jane@example.com",
+  "password": "securepassword123"
+}
+```

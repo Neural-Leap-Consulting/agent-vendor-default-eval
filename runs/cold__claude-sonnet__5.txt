@@ -1,0 +1,103 @@
+No file-editing tools are available in this session, so I'll give you the code directly to paste into your project.
+
+## 1. Install dependencies
+
+```bash
+npm install express nodemailer dotenv
+```
+
+## 2. `mailer.js` — reusable mail transport
+
+```js
+// mailer.js
+const nodemailer = require('nodemailer');
+
+const transporter = nodemailer.createTransport({
+  host: process.env.SMTP_HOST,
+  port: Number(process.env.SMTP_PORT) || 587,
+  secure: process.env.SMTP_SECURE === 'true', // true for port 465, false for 587/25
+  auth: {
+    user: process.env.SMTP_USER,
+    pass: process.env.SMTP_PASS,
+  },
+});
+
+async function sendWelcomeEmail(to, name) {
+  await transporter.sendMail({
+    from: process.env.MAIL_FROM, // e.g. '"My App" <no-reply@myapp.com>'
+    to,
+    subject: 'Welcome to My App!',
+    text: `Hi ${name},\n\nWelcome aboard! We're glad you're here.`,
+    html: `<p>Hi ${name},</p><p>Welcome aboard! We're glad you're here.</p>`,
+  });
+}
+
+module.exports = { sendWelcomeEmail };
+```
+
+## 3. `.env`
+
+```
+SMTP_HOST=smtp.yourprovider.com
+SMTP_PORT=587
+SMTP_SECURE=false
+SMTP_USER=your-smtp-username
+SMTP_PASS=your-smtp-password
+MAIL_FROM="My App <no-reply@myapp.com>"
+```
+
+## 4. Signup route
+
+```js
+// routes/signup.js
+const express = require('express');
+const { sendWelcomeEmail } = require('../mailer');
+
+const router = express.Router();
+
+router.post('/signup', async (req, res) => {
+  const { email, name } = req.body;
+
+  if (!email || !name) {
+    return res.status(400).json({ error: 'email and name are required' });
+  }
+
+  try {
+    // ... create the user in your database here ...
+
+    // Don't let a slow/broken mail provider block the signup response.
+    sendWelcomeEmail(email, name).catch((err) => {
+      console.error('Failed to send welcome email:', err);
+    });
+
+    res.status(201).json({ message: 'Signup successful' });
+  } catch (err) {
+    console.error('Signup failed:', err);
+    res.status(500).json({ error: 'Signup failed' });
+  }
+});
+
+module.exports = router;
+```
+
+## 5. Wire it into your app
+
+```js
+// app.js
+require('dotenv').config();
+const express = require('express');
+const signupRouter = require('./routes/signup');
+
+const app = express();
+app.use(express.json());
+app.use('/api', signupRouter);
+
+app.listen(3000, () => console.log('Server running on port 3000'));
+```
+
+**Notes:**
+- The welcome email is fired-and-forgotten (`.catch` logs errors) so a slow mail server doesn't delay the signup response. If you'd rather guarantee delivery, use a background job queue (e.g. BullMQ) instead of inline sending.
+- For a real SMTP provider, use something like SendGrid, Postmark, SES, or Mailgun's SMTP credentials — set them in `.env`, never commit them.
+- Swap the `text`/`html` bodies for a templating engine (e.g. `handlebars`, `mjml`) if you want richer emails later.
+
+Want me to add retry logic, a queue-based approach, or an email templating setup?

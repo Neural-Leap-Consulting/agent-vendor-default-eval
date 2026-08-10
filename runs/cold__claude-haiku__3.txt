@@ -1,0 +1,98 @@
+I'll provide you with the complete code. Here's a working implementation:
+
+**app.js** — Main Express server:
+```javascript
+import express from 'express';
+import { sendWelcomeEmail } from './emailService.js';
+
+const app = express();
+app.use(express.json());
+
+// In-memory user store (replace with database in production)
+const users = new Map();
+
+app.post('/signup', async (req, res) => {
+  const { email, name } = req.body;
+
+  if (!email || !name) {
+    return res.status(400).json({ error: 'Email and name are required' });
+  }
+
+  if (users.has(email)) {
+    return res.status(409).json({ error: 'User already exists' });
+  }
+
+  try {
+    // Save user
+    users.set(email, { email, name, createdAt: new Date() });
+
+    // Send welcome email
+    await sendWelcomeEmail(email, name);
+
+    res.status(201).json({ message: 'User created successfully', email, name });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to create user' });
+    console.error('Signup error:', error);
+  }
+});
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+});
+```
+
+**emailService.js** — Email sending logic:
+```javascript
+import nodemailer from 'nodemailer';
+
+const transporter = nodemailer.createTransport({
+  service: 'gmail',
+  auth: {
+    user: process.env.EMAIL_USER,
+    pass: process.env.EMAIL_PASSWORD,
+  },
+});
+
+export async function sendWelcomeEmail(email, name) {
+  const mailOptions = {
+    from: process.env.EMAIL_USER,
+    to: email,
+    subject: 'Welcome!',
+    html: `
+      <h1>Welcome, ${name}!</h1>
+      <p>Thank you for signing up. We're excited to have you on board.</p>
+      <p>If you have any questions, feel free to reach out.</p>
+    `,
+  };
+
+  return transporter.sendMail(mailOptions);
+}
+```
+
+**.env** — Configuration:
+```
+EMAIL_USER=your-email@gmail.com
+EMAIL_PASSWORD=your-app-password
+PORT=3000
+```
+
+**package.json** — Dependencies:
+```json
+{
+  "type": "module",
+  "dependencies": {
+    "express": "^4.18.2",
+    "nodemailer": "^6.9.7",
+    "dotenv": "^16.3.1"
+  }
+}
+```
+
+**Setup steps:**
+1. Install dependencies: `npm install`
+2. Create `.env` file with your email credentials (use an [app password](https://support.google.com/accounts/answer/185833) for Gmail)
+3. Run: `node app.js`
+4. Test with: `curl -X POST http://localhost:3000/signup -H "Content-Type: application/json" -d '{"email":"user@example.com","name":"John"}'`
+
+For production, replace the in-memory user store with a proper database (MongoDB, PostgreSQL, etc.). You can also use email services like SendGrid or AWS SES instead of Nodemailer for better reliability.

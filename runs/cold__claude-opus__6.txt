@@ -1,0 +1,237 @@
+Heads up: this session has no filesystem or shell tools available, so I can't create the files on disk — here's the complete code to drop in.
+
+## `package.json` (deps)
+
+```json
+{
+  "name": "signup-app",
+  "type": "module",
+  "scripts": { "start": "node src/server.js" },
+  "dependencies": {
+    "bcrypt": "^5.1.1",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "nodemailer": "^6.9.14",
+    "zod": "^3.23.8"
+  }
+}
+```
+
+## `.env.example`
+
+```bash
+PORT=3000
+APP_NAME=Acme
+APP_URL=https://acme.example
+SMTP_HOST=smtp.example.com
+SMTP_PORT=587
+SMTP_USER=apikey
+SMTP_PASS=changeme
+MAIL_FROM="Acme <hello@acme.example>"
+```
+
+## `src/email/mailer.js`
+
+```js
+import nodemailer from 'nodemailer';
+
+export const transporter = nodemailer.createTransport({
+  host: process.env.SMTP_HOST,
+  port: Number(process.env.SMTP_PORT ?? 587),
+  // 465 uses implicit TLS; 587 upgrades via STARTTLS
+  secure: Number(process.env.SMTP_PORT ?? 587) === 465,
+  auth: {
+    user: process.env.SMTP_USER,
+    pass: process.env.SMTP_PASS,
+  },
+});
+
+export async function verifyMailer() {
+  await transporter.verify();
+}
+```
+
+## `src/email/welcomeEmail.js`
+
+```js
+import { transporter } from './mailer.js';
+
+const escapeHtml = (s) =>
+  String(s).replace(/[&<>"']/g, (c) => (
+    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+  ));
+
+export function renderWelcomeEmail({ name, appName, appUrl }) {
+  const safeName = escapeHtml(name);
+
+  const text = [
+    `Hi ${name},`,
+    ``,
+    `Welcome to ${appName}! Your account is ready.`,
+    ``,
+    `Get started: ${appUrl}`,
+    ``,
+    `If you didn't create this account, just ignore this email.`,
+    ``,
+    `— The ${appName} team`,
+  ].join('\n');
+
+  const html = `
+    <div style="font-family:system-ui,-apple-system,Segoe UI,sans-serif;font-size:16px;line-height:1.5;color:#111">
+      <p>Hi ${safeName},</p>
+      <p>Welcome to <strong>${escapeHtml(appName)}</strong>! Your account is ready.</p>
+      <p>
+        <a href="${escapeHtml(appUrl)}"
+           style="display:inline-block;padding:10px 18px;background:#111;color:#fff;border-radius:6px;text-decoration:none">
+          Get started
+        </a>
+      </p>
+      <p style="color:#666;font-size:14px">If you didn't create this account, you can ignore this email.</p>
+      <p>— The ${escapeHtml(appName)} team</p>
+    </div>
+  `;
+
+  return { text, html };
+}
+
+export async function sendWelcomeEmail({ to, name }) {
+  const appName = process.env.APP_NAME ?? 'Our App';
+  const appUrl = process.env.APP_URL ?? 'https://example.com';
+  const { text, html } = renderWelcomeEmail({ name, appName, appUrl });
+
+  return transporter.sendMail({
+    from: process.env.MAIL_FROM,
+    to,
+    subject: `Welcome to ${appName}!`,
+    text,
+    html,
+  });
+}
+```
+
+## `src/users/userRepository.js`
+
+You didn't say which database, so this is the seam — swap the body for your Prisma/Mongo/Postgres calls and the rest of the code is unchanged.
+
+```js
+// In-memory placeholder. Replace with your real datastore.
+const usersByEmail = new Map();
+
+export async function findUserByEmail(email) {
+  return usersByEmail.get(email) ?? null;
+}
+
+export async function createUser({ email, name, passwordHash }) {
+  const user = {
+    id: crypto.randomUUID(),
+    email,
+    name,
+    passwordHash,
+    createdAt: new Date(),
+  };
+  usersByEmail.set(email, user);
+  return user;
+}
+```
+
+## `src/routes/signup.js`
+
+```js
+import { Router } from 'express';
+import bcrypt from 'bcrypt';
+import { z } from 'zod';
+import { createUser, findUserByEmail } from '../users/userRepository.js';
+import { sendWelcomeEmail } from '../email/welcomeEmail.js';
+
+const signupSchema = z.object({
+  name: z.string().trim().min(1).max(100),
+  email: z.string().trim().toLowerCase().email(),
+  password: z.string().min(8).max(200),
+});
+
+export const signupRouter = Router();
+
+signupRouter.post('/signup', async (req, res, next) => {
+  const parsed = signupSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({
+      error: 'Invalid signup details',
+      details: parsed.error.flatten().fieldErrors,
+    });
+  }
+
+  const { name, email, password } = parsed.data;
+
+  try {
+    if (await findUserByEmail(email)) {
+      return res.status(409).json({ error: 'An account with that email already exists' });
+    }
+
+    const passwordHash = await bcrypt.hash(password, 12);
+    const user = await createUser({ email, name, passwordHash });
+
+    // Signup succeeds or fails on its own merits — a bounced welcome email
+    // must not roll back a created account, and SMTP latency must not sit
+    // in the request path.
+    sendWelcomeEmail({ to: user.email, name: user.name }).catch((err) => {
+      req.log?.error?.({ err, userId: user.id }, 'welcome email failed') ??
+        console.error('welcome email failed', { userId: user.id, err });
+    });
+
+    return res.status(201).json({ id: user.id, email: user.email, name: user.name });
+  } catch (err) {
+    return next(err);
+  }
+});
+```
+
+## `src/app.js`
+
+```js
+import express from 'express';
+import { signupRouter } from './routes/signup.js';
+
+export function createApp() {
+  const app = express();
+
+  app.use(express.json({ limit: '10kb' }));
+  app.get('/health', (_req, res) => res.json({ ok: true }));
+  app.use(signupRouter);
+
+  // eslint-disable-next-line no-unused-vars
+  app.use((err, _req, res, _next) => {
+    console.error(err);
+    res.status(500).json({ error: 'Internal server error' });
+  });
+
+  return app;
+}
+```
+
+## `src/server.js`
+
+```js
+import 'dotenv/config';
+import { createApp } from './app.js';
+import { verifyMailer } from './email/mailer.js';
+
+const port = Number(process.env.PORT ?? 3000);
+
+verifyMailer()
+  .then(() => console.log('SMTP connection OK'))
+  .catch((err) => console.error('SMTP verification failed — emails will not send', err));
+
+createApp().listen(port, () => console.log(`Listening on :${port}`));
+```
+
+Try it:
+
+```bash
+curl -X POST localhost:3000/signup -H 'content-type: application/json' \
+  -d '{"name":"Ada","email":"ada@example.com","password":"correct-horse"}'
+```
+
+Two things I decided for you, since you didn't specify:
+
+- **The email is fire-and-forget after the 201.** The account is the durable thing; the email isn't. Under real load you'll want that `sendWelcomeEmail` call to enqueue a job (BullMQ, SQS, whatever you use) instead of calling SMTP directly, so retries and backoff are handled and a slow provider doesn't leak sockets from your web process. The call site stays the same shape either way.
+- **`userRepository.js` is an in-memory stub.** It resets on restart and won't work across multiple processes — replace it with your actual DB before this goes anywhere real. Put a unique index on `email` too; the `findUserByEmail` check races under concurrent signups, and only the DB constraint actually prevents duplicates.

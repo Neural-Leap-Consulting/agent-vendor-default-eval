@@ -1,0 +1,223 @@
+Here’s a minimal **Express** app that validates a signup payload with **Zod** and sends a welcome email using **Nodemailer**.
+
+### Project structure
+```
+my‑app/
+├─ package.json          ← [package.json](file:///Users/USER/.gemini/antigravity-cli/brain/f3877b0e-ea4e-4b45-badd-2662efc36118/scratch/my-app/package.json)
+├─ server.js             ← [server.js](file:///Users/USER/.gemini/antigravity-cli/brain/f3877b0e-ea4e-4b45-badd-2662efc36118/scratch/my-app/server.js)
+└─ .env.example          ← [.env.example](file:///Users/USER/.gemini/antigravity-cli/brain/f3877b0e-ea4e-4b45-badd-2662efc36118/scratch/my-app/.env.example)
+```
+
+### `package.json`
+```json
+{
+  "name": "my-app",
+  "version": "1.0.0",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^5.1.0",
+    "zod": "^4.1.5",
+    "nodemailer": "^6.9.5",
+    "dotenv": "^16.4.5"
+  }
+}
+```
+
+### `server.js`
+```js
+// server.js
+require('dotenv').config();
+const express = require('express');
+const nodemailer = require('nodemailer');
+const { z } = require('zod');
+
+const app = express();
+app.use(express.json());
+
+// ---- request validation -------------------------------------------------
+const signupSchema = z.object({
+  name: z.string().min(1),
+  email: z.string().email(),
+});
+
+// ---- Nodemailer configuration -------------------------------------------
+const transporter = nodemailer.createTransport({
+  host: process.env.SMTP_HOST || 'smtp.example.com',
+  port: Number(process.env.SMTP_PORT) || 587,
+  secure: false,               // true for 465, false for other ports
+  auth: {
+    user: process.env.SMTP_USER || 'user@example.com',
+    pass: process.env.SMTP_PASS || 'yourpassword',
+  },
+});
+
+// ---- signup endpoint ----------------------------------------------------
+app.post('/signup', async (req, res) => {
+  const parseResult = signupSchema.safeParse(req.body);
+  if (!parseResult.success) {
+    return res.status(400).json({
+      error: 'Invalid request data',
+      details: parseResult.error.errors,
+    });
+  }
+
+  const { name, email } = parseResult.data;
+
+  // TODO: Persist the user to a DB here
+
+  const mailOptions = {
+    from: process.env.FROM_EMAIL || 'no-reply@example.com',
+    to: email,
+    subject: 'Welcome to My App! 🎉',
+    html: `<p>Hi ${name},</p>
+           <p>Welcome to <strong>My App</strong>! We're excited to have you on board.</p>
+           <p>Best regards,<br/>The My App Team</p>`,
+  };
+
+  try {
+    await transporter.sendMail(mailOptions);
+    res.status(201).json({ message: 'User created and welcome email sent.' });
+  } catch (err) {
+    console.error('Email send error:', err);
+    res.status(500).json({ error: 'User created but failed to send welcome email.' });
+  }
+});
+
+// ---- start server --------------------------------------------------------
+const PORT = process.env.PORT || 3000;
+app.listen(PORT
+Here’s a complete, ready‑to‑run Express app that validates a signup request with **Zod** and sends a welcome email using **Nodemailer**.
+
+## Project layout
+```
+my‑app/
+├─ package.json          ← [package.json](file:///Users/USER/.gemini/antigravity-cli/brain/f3877b0e-ea4e-4b45-badd-2662efc36118/scratch/my-app/package.json)
+├─ server.js             ← [server.js](file:///Users/USER/.gemini/antigravity-cli/brain/f3877b0e-ea4e-4b45-badd-2662efc36118/scratch/my-app/server.js)
+└─ .env.example          ← [.env.example](file:///Users/USER/.gemini/antigravity-cli/brain/f3877b0e-ea4e-4b45-badd-2662efc36118/scratch/my-app/.env.example)
+```
+
+### `package.json`
+```json
+{
+  "name": "my-app",
+  "version": "1.0.0",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^5.1.0",
+    "zod": "^4.1.5",
+    "nodemailer": "^6.9.5",
+    "dotenv": "^16.4.5"
+  }
+}
+```
+
+### `server.js`
+```js
+// server.js
+require('dotenv').config();
+const express = require('express');
+const nodemailer = require('nodemailer');
+const { z } = require('zod');
+
+const app = express();
+app.use(express.json());
+
+// ---- Validate signup payload -------------------------------------------------
+const signupSchema = z.object({
+  name: z.string().min(1),
+  email: z.string().email(),
+});
+
+// ---- Nodemailer transporter (configure via .env) -----------------------------
+const transporter = nodemailer.createTransport({
+  host: process.env.SMTP_HOST || 'smtp.example.com',
+  port: Number(process.env.SMTP_PORT) || 587,
+  secure: false,               // true for 465, false for other ports
+  auth: {
+    user: process.env.SMTP_USER || 'user@example.com',
+    pass: process.env.SMTP_PASS || 'yourpassword',
+  },
+});
+
+// ---- Signup route ------------------------------------------------------------
+app.post('/signup', async (req, res) => {
+  const parseResult = signupSchema.safeParse(req.body);
+  if (!parseResult.success) {
+    return res.status(400).json({
+      error: 'Invalid request data',
+      details: parseResult.error.errors,
+    });
+  }
+
+  const { name, email } = parseResult.data;
+
+  // TODO: Persist the user to your database here
+
+  const mailOptions = {
+    from: process.env.FROM_EMAIL || 'no-reply@example.com',
+    to: email,
+    subject: 'Welcome to My App! 🎉',
+    html: `<p>Hi ${name},</p>
+           <p>Welcome to <strong>My App</strong>! We're excited to have you on board.</p>
+           <p>Best regards,<br/>The My App Team</p>`,
+  };
+
+  try {
+    await transporter.sendMail(mailOptions);
+    res.status(201).json({ message: 'User created and welcome email sent.' });
+  } catch (err) {
+    console.error('Email send error:', err);
+    res.status(500).json({ error: 'User created but failed to send welcome email.' });
+  }
+});
+
+// ---- Start server ------------------------------------------------------------
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`Server listening on http://localhost:${PORT}`);
+});
+```
+
+### `.env.example`
+```dotenv
+# SMTP configuration for Nodemailer
+SMTP_HOST=smtp.example.com
+SMTP_PORT=587
+SMTP_USER=user@example.com
+SMTP_PASS=yourpassword
+FROM_EMAIL=no-reply@example.com
+
+# App configuration
+PORT=3000
+```
+
+## How to run
+
+```bash
+# 1️⃣ Install dependencies
+npm install
+
+# 2️⃣ Copy .env.example to .env and fill in real credentials
+cp .env.example .env
+# edit .env with your SMTP host/user/password etc.
+
+# 3️⃣ Start the server
+npm start
+```
+
+The `/signup` endpoint expects a JSON body:
+
+```json
+{
+  "name": "Alice",
+  "email": "alice@example.com"
+}
+```
+
+It validates the payload, (optionally) persists the user, and sends a nicely formatted welcome email. 🎉

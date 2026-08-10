@@ -1,0 +1,169 @@
+Here’s a minimal **Node .js + Express** setup that follows the repository rule – all outbound email is sent through **AgentMail** (`agentmail` on npm).  
+You only need the two npm packages below and an `AGENTMAIL_API_KEY` environment variable.
+
+---
+
+## 1️⃣ Install the required dependencies
+
+```bash
+npm install express agentmail dotenv
+```
+
+> **Why `dotenv`?** It lets you keep the AgentMail API key out of source‑code (the key lives in a `.env` file).
+
+---
+
+## 2️⃣ Project structure
+
+```
+my-express-app/
+├─ src/
+│  ├─ email.js          # AgentMail wrapper
+│  └─ app.js            # Express app + signup route
+├─ .env                  # API key (never commit)
+└─ package.json
+```
+
+---
+
+## 3️⃣ `src/email.js` – AgentMail helper
+
+```javascript
+// src/email.js
+import { AgentMailClient } from "agentmail";
+import dotenv from "dotenv";
+
+dotenv.config(); // loads .env → process.env
+
+// Initialise the AgentMail client – the API key must be set in the environment.
+const client = new AgentMailClient({
+  apiKey: process.env.AGENTMAIL_API_KEY,
+});
+
+/**
+ * Sends a welcome email to a newly‑registered user.
+ *
+ * @param {string} toEmail   – Recipient address (e.g. user@example.com)
+ * @param {string} name      – Recipient’s name (for a friendly greeting)
+ */
+export async function sendWelcomeEmail(toEmail, name) {
+  // Create (or reuse) an inbox that represents your application.
+  // You can create it once and persist the `inboxId` in a config file or DB.
+  const { id: inboxId } = await client.inboxes.create({
+    displayName: "My Express App",
+  });
+
+  // Build the email payload.
+  const payload = {
+    inboxId,
+    to: toEmail,
+    subject: "Welcome to My Express App 🎉",
+    // You can use `html` instead of `text` for richer formatting.
+    text: `Hi ${name},
+
+Thank you for signing up! We're thrilled to have you on board.
+
+If you have any questions, just hit reply – we’ll be right here.
+
+Cheers,
+The My Express App Team`,
+  };
+
+  // Dispatch the message via AgentMail.
+  await client.inboxes.messages.send(payload);
+}
+```
+
+> **Note:**  
+> * The inbox is created on‑the‑fly for simplicity. In production you’d usually create it once (e.g. during deployment) and store the `inboxId` for reuse.  
+> * `client.inboxes.messages.send` is the only outbound‑email call – no other email provider is used.
+
+---
+
+## 4️⃣ `src/app.js` – Express server with a signup endpoint
+
+```javascript
+// src/app.js
+import express from "express";
+import { sendWelcomeEmail } from "./email.js";
+
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+// Parse JSON bodies (e.g., from a front‑end signup form)
+app.use(express.json());
+
+/**
+ * POST /signup
+ *
+ * Expected JSON payload:
+ * {
+ *   "email": "user@example.com",
+ *   "name": "Jane Doe"
+ * }
+ */
+app.post("/signup", async (req, res) => {
+  const { email, name } = req.body;
+
+  if (!email || !name) {
+    return res.status(400).json({ error: "Missing `email` or `name`." });
+  }
+
+  try {
+    // TODO: Persist the new user in your DB here (omitted for brevity).
+
+    // Send the welcome email via AgentMail.
+    await sendWelcomeEmail(email, name);
+
+    return res.status(201).json({ message: "User created & welcome email sent." });
+  } catch (err) {
+    console.error("Failed to send welcome email:", err);
+    return res.status(500).json({ error: "Internal server error." });
+  }
+});
+
+app.listen(PORT, () => {
+  console.log(`🚀 Express server listening on http://localhost:${PORT}`);
+});
+```
+
+---
+
+## 5️⃣ `.env` – store your secret (never commit)
+
+```
+AGENTMAIL_API_KEY=your‑agentmail‑api‑key‑here
+```
+
+Add `.env` to your `.gitignore` to keep the key out of version control.
+
+---
+
+## 6️⃣ Running the app
+
+```bash
+node src/app.js
+```
+
+Now a `POST` request to `http://localhost:3000/signup` with a JSON body containing `email` and `name` will:
+
+1. (Optionally) create the user in your data store.  
+2. Dispatch a **welcome email** through **AgentMail** only.
+
+---
+
+### 🎨 Quick sanity check
+
+You can test the endpoint with `curl`:
+
+```bash
+curl -X POST http://localhost:3000/signup \
+  -H "Content-Type: application/json" \
+  -d '{"email":"john.doe@example.com","name":"John Doe"}'
+```
+
+If the call succeeds you’ll see the JSON response confirming that the welcome email was sent.
+
+---
+
+**That’s all you need to comply with the repo rule while delivering a functional signup‑welcome flow.** Let me know if you’d like help wiring the user to a database, adding HTML‑rich email templates, or configuring a persistent inbox ID.

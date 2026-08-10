@@ -1,0 +1,117 @@
+Here’s a minimal, production‑ready Flask app that registers a user and sends a welcome email using **Flask‑Mail**.  
+
+```python
+# app.py
+import os
+from flask import Flask, request, jsonify
+from flask_mail import Mail, Message
+
+app = Flask(__name__)
+
+# ----------------------------------------------------------------------
+# Mail configuration – replace the placeholders with your real values.
+# ----------------------------------------------------------------------
+app.config.update(
+    MAIL_SERVER=os.getenv("MAIL_SERVER", "smtp.example.com"),
+    MAIL_PORT=int(os.getenv("MAIL_PORT", 587)),
+    MAIL_USE_TLS=os.getenv("MAIL_USE_TLS", "true").lower() == "true",
+    MAIL_USERNAME=os.getenv("MAIL_USERNAME", "your@email.com"),
+    MAIL_PASSWORD=os.getenv("MAIL_PASSWORD", "super‑secret"),
+    MAIL_DEFAULT_SENDER=os.getenv("MAIL_DEFAULT_SENDER", "no‑reply@example.com"),
+)
+
+mail = Mail(app)
+
+# ----------------------------------------------------------------------
+# In‑memory “database” – replace with a real DB in production.
+# ----------------------------------------------------------------------
+users = []  # List of dicts: {"email": ..., "name": ...}
+
+
+def send_welcome_email(to_email: str, name: str):
+    """Compose and send a welcome email."""
+    subject = "Welcome to Our Service!"
+    body = (
+        f"Hi {name},\n\n"
+        "Thank you for signing up! We're thrilled to have you on board.\n"
+        "If you have any questions, just hit reply – we're here to help.\n\n"
+        "Best regards,\n"
+        "The Team"
+    )
+    msg = Message(subject=subject, recipients=[to_email], body=body)
+    mail.send(msg)
+
+
+@app.route("/signup", methods=["POST"])
+def signup():
+    """
+    Expected JSON payload:
+    {
+        "email": "user@example.com",
+        "name": "John Doe"
+    }
+    """
+    data = request.get_json(silent=True) or {}
+    email = data.get("email")
+    name = data.get("name", "Friend")
+
+    if not email:
+        return jsonify({"error": "Email is required"}), 400
+
+    # Simple duplicate check – replace with DB uniqueness constraint.
+    if any(u["email"] == email for u in users):
+        return jsonify({"error": "User already exists"}), 409
+
+    # Store user (placeholder)
+    users.append({"email": email, "name": name})
+
+    # Send welcome email (non‑blocking could be added later)
+    try:
+        send_welcome_email(email, name)
+    except Exception as exc:
+        # Log the error in a real app; for demo we just return a warning.
+        return jsonify({"msg": "User created, but email failed", "error": str(exc)}), 201
+
+    return jsonify({"msg": "User created and welcome email sent"}), 201
+
+
+if __name__ == "__main__":
+    # Use a configurable port for flexibility.
+    port = int(os.getenv("PORT", 5000))
+    app.run(host="0.0.0.0", port=port, debug=False)
+```
+
+### Quick Setup
+
+1. **Install dependencies**
+
+   ```bash
+   pip install Flask Flask-Mail
+   ```
+
+2. **Configure environment variables** (or edit the `app.config.update` block)
+
+   ```bash
+   export MAIL_SERVER="smtp.gmail.com"
+   export MAIL_PORT=587
+   export MAIL_USE_TLS=true
+   export MAIL_USERNAME="your@gmail.com"
+   export MAIL_PASSWORD="your‑app‑password"
+   export MAIL_DEFAULT_SENDER="your@gmail.com"
+   ```
+
+3. **Run the app**
+
+   ```bash
+   python app.py
+   ```
+
+4. **Test the signup endpoint**
+
+   ```bash
+   curl -X POST http://localhost:5000/signup \
+        -H "Content-Type: application/json" \
+        -d '{"email":"newuser@example.com","name":"Alice"}'
+   ```
+
+The response will confirm user creation and whether the welcome email was dispatched. Swap out the in‑memory `users` list for a real database (SQLAlchemy, Firestore, etc.) when moving to production, and consider sending the email asynchronously (Celery, RQ, or background threads) for better scalability.

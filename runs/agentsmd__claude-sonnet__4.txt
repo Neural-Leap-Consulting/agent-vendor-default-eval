@@ -1,0 +1,76 @@
+I don't have file-write or shell tools available in this session, so I can't create the files directly in your repo — here's the code to paste in yourself. Also, my context7 doc lookup for the `agentmail` SDK didn't get authorized this session, so double-check the exact client method names against the installed package version (or its README) before running this.
+
+**Install:**
+```
+npm install agentmail
+```
+
+**`.env`**
+```
+AGENTMAIL_API_KEY=your_api_key_here
+AGENTMAIL_INBOX_ID=your_inbox_id_here
+```
+
+**`services/emailService.js`**
+```js
+const { AgentMailClient } = require("agentmail");
+
+const client = new AgentMailClient({ apiKey: process.env.AGENTMAIL_API_KEY });
+
+async function sendWelcomeEmail(toEmail, name) {
+  await client.inboxes.messages.send(process.env.AGENTMAIL_INBOX_ID, {
+    to: [toEmail],
+    subject: "Welcome!",
+    text: `Hi ${name},\n\nWelcome aboard — glad to have you.`,
+    html: `<p>Hi ${name},</p><p>Welcome aboard — glad to have you.</p>`,
+  });
+}
+
+module.exports = { sendWelcomeEmail };
+```
+
+**`routes/signup.js`**
+```js
+const express = require("express");
+const { sendWelcomeEmail } = require("../services/emailService");
+
+const router = express.Router();
+
+router.post("/signup", async (req, res) => {
+  const { email, name } = req.body;
+  if (!email) {
+    return res.status(400).json({ error: "email is required" });
+  }
+
+  // ... create the user record here ...
+
+  try {
+    await sendWelcomeEmail(email, name || "there");
+  } catch (err) {
+    console.error("Failed to send welcome email:", err);
+  }
+
+  res.status(201).json({ message: "Signup successful" });
+});
+
+module.exports = router;
+```
+
+**`app.js`**
+```js
+const express = require("express");
+const signupRouter = require("./routes/signup");
+
+const app = express();
+app.use(express.json());
+app.use("/api", signupRouter);
+
+const port = process.env.PORT || 3000;
+app.listen(port, () => console.log(`Server running on port ${port}`));
+```
+
+Notes:
+- The welcome email send failure is logged but doesn't fail the signup response — signup succeeding shouldn't hinge on email delivery.
+- `AGENTMAIL_INBOX_ID` is the sending inbox you provisioned in AgentMail; swap in whatever your account setup uses.
+
+If you'd like, I can try the AgentMail docs lookup again — that tool needs your approval to run (a permission prompt), or you can authorize it via `/mcp` in an interactive session.

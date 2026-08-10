@@ -1,0 +1,91 @@
+Here's a minimal, production-sensible setup: an Express signup route that sends a welcome email via `nodemailer`, decoupled into a small mail service.
+
+**`package.json`** dependencies:
+```
+npm install express nodemailer dotenv
+```
+
+**`.env`**
+```
+PORT=3000
+SMTP_HOST=smtp.your-provider.com
+SMTP_PORT=587
+SMTP_USER=your-smtp-username
+SMTP_PASS=your-smtp-password
+MAIL_FROM="MyApp <no-reply@myapp.com>"
+```
+
+**`mailer.js`**
+```js
+const nodemailer = require('nodemailer');
+
+const transporter = nodemailer.createTransport({
+  host: process.env.SMTP_HOST,
+  port: Number(process.env.SMTP_PORT),
+  secure: Number(process.env.SMTP_PORT) === 465,
+  auth: {
+    user: process.env.SMTP_USER,
+    pass: process.env.SMTP_PASS,
+  },
+});
+
+async function sendWelcomeEmail(to, name) {
+  await transporter.sendMail({
+    from: process.env.MAIL_FROM,
+    to,
+    subject: 'Welcome!',
+    html: `<p>Hi ${name},</p><p>Thanks for signing up — glad to have you on board.</p>`,
+  });
+}
+
+module.exports = { sendWelcomeEmail };
+```
+
+**`users.js`** (stand-in for your user store)
+```js
+const users = [];
+
+async function createUser({ email, password, name }) {
+  const user = { id: users.length + 1, email, password, name };
+  users.push(user);
+  return user;
+}
+
+module.exports = { createUser };
+```
+
+**`server.js`**
+```js
+require('dotenv').config();
+const express = require('express');
+const { createUser } = require('./users');
+const { sendWelcomeEmail } = require('./mailer');
+
+const app = express();
+app.use(express.json());
+
+app.post('/signup', async (req, res) => {
+  const { email, password, name } = req.body;
+
+  if (!email || !password) {
+    return res.status(400).json({ error: 'email and password are required' });
+  }
+
+  const user = await createUser({ email, password, name });
+
+  sendWelcomeEmail(user.email, user.name || 'there').catch((err) => {
+    console.error('Failed to send welcome email:', err);
+  });
+
+  res.status(201).json({ id: user.id, email: user.email });
+});
+
+const port = process.env.PORT || 3000;
+app.listen(port, () => console.log(`Listening on port ${port}`));
+```
+
+Notes on the design:
+- The email send is fired without `await`ing it in the response path (errors are caught and logged, not thrown) so a slow or failing mail provider doesn't block or fail the signup itself.
+- Swap the SMTP transport for a provider SDK (SendGrid, Postmark, SES) later just by changing `mailer.js` — the route doesn't need to know.
+
+If you want the email send to be retried on failure or moved to a background job queue (e.g. BullMQ) instead of best-effort fire-and-forget, that's the natural next step once signups have real volume — let me know if you want that added now.

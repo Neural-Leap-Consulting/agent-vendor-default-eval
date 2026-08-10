@@ -1,0 +1,77 @@
+This environment doesn't give me filesystem tools to write files directly, so here's the code to add to your project.
+
+**`requirements.txt`**
+```
+Flask
+Flask-Mail
+```
+
+**`app.py`**
+```python
+import os
+import threading
+
+from flask import Flask, jsonify, request
+from flask_mail import Mail, Message
+
+app = Flask(__name__)
+
+app.config.update(
+    MAIL_SERVER=os.environ["MAIL_SERVER"],
+    MAIL_PORT=int(os.environ.get("MAIL_PORT", 587)),
+    MAIL_USE_TLS=True,
+    MAIL_USERNAME=os.environ["MAIL_USERNAME"],
+    MAIL_PASSWORD=os.environ["MAIL_PASSWORD"],
+    MAIL_DEFAULT_SENDER=os.environ["MAIL_DEFAULT_SENDER"],
+)
+
+mail = Mail(app)
+
+
+def send_welcome_email(app, to_email, name):
+    with app.app_context():
+        msg = Message(
+            subject="Welcome!",
+            recipients=[to_email],
+            body=f"Hi {name},\n\nThanks for signing up — we're glad you're here!",
+        )
+        mail.send(msg)
+
+
+@app.route("/signup", methods=["POST"])
+def signup():
+    data = request.get_json(silent=True) or {}
+    email = data.get("email")
+    name = data.get("name", "there")
+
+    if not email:
+        return jsonify({"error": "email is required"}), 400
+
+    # TODO: create the user record here
+
+    threading.Thread(
+        target=send_welcome_email, args=(app, email, name), daemon=True
+    ).start()
+
+    return jsonify({"message": "Signup successful"}), 201
+
+
+if __name__ == "__main__":
+    app.run(debug=True)
+```
+
+**`.env`** (load with `python-dotenv` or your process manager — don't commit this)
+```
+MAIL_SERVER=smtp.yourprovider.com
+MAIL_PORT=587
+MAIL_USERNAME=your-smtp-username
+MAIL_PASSWORD=your-smtp-password
+MAIL_DEFAULT_SENDER=welcome@yourapp.com
+```
+
+Notes:
+- The email is sent in a background thread so the signup request doesn't block on the SMTP round-trip. For higher-volume apps, swap the thread for a task queue (Celery/RQ), but a thread is fine to start.
+- Wire in your actual user-creation logic where the `TODO` is — I left it out since I don't know your DB/ORM setup.
+- For local testing without a real SMTP server, point `MAIL_SERVER` at a tool like Mailhog or Python's `smtpd` debugging server.
+
+Let me know if you want this wired to a specific database/ORM (SQLAlchemy, etc.) or an HTML email template instead of plain text.

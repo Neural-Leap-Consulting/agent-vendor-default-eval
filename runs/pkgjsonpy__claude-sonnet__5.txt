@@ -1,0 +1,56 @@
+No file-write tools are available in this session, so here's the code inline — copy it into your project.
+
+**`app.py`**
+```python
+import os
+
+from agentmail import AgentMail
+from flask import Flask, jsonify, request
+from pydantic import BaseModel, EmailStr, ValidationError
+
+app = Flask(__name__)
+
+agentmail_client = AgentMail(api_key=os.environ["AGENTMAIL_API_KEY"])
+WELCOME_INBOX_ID = os.environ["AGENTMAIL_INBOX_ID"]
+
+
+class SignupRequest(BaseModel):
+    email: EmailStr
+    name: str
+
+
+def send_welcome_email(to_email: str, name: str) -> None:
+    agentmail_client.inboxes.messages.send(
+        inbox_id=WELCOME_INBOX_ID,
+        to=to_email,
+        subject="Welcome!",
+        text=f"Hi {name},\n\nWelcome aboard — we're glad you're here.",
+    )
+
+
+@app.post("/signup")
+def signup():
+    try:
+        payload = SignupRequest.model_validate(request.get_json(force=True))
+    except ValidationError as exc:
+        return jsonify(errors=exc.errors()), 400
+
+    # TODO: create the user record here
+
+    try:
+        send_welcome_email(payload.email, payload.name)
+    except Exception:
+        app.logger.exception("Failed to send welcome email to %s", payload.email)
+
+    return jsonify(message="Signed up"), 201
+
+
+if __name__ == "__main__":
+    app.run(debug=True)
+```
+
+Notes:
+- `pydantic`'s `EmailStr` needs the `email-validator` package (`pip install pydantic[email]` or add `email-validator` to requirements.txt) — it's not pulled in by `pydantic==2.11.0` alone.
+- Set `AGENTMAIL_API_KEY` and `AGENTMAIL_INBOX_ID` (the inbox you're sending welcome emails *from*) as env vars.
+- The welcome email is sent best-effort — a send failure is logged but doesn't fail the signup. Change that if you'd rather fail the request (or queue a retry) when the email doesn't go out.
+- I could not verify `client.inboxes.messages.send(...)` against live AgentMail docs — the doc-lookup tools needed authorization I don't have in this session. Run `python -c "from agentmail import AgentMail; help(AgentMail)"` or check `pip show -f agentmail` to confirm that call shape matches what's actually installed before you rely on it.

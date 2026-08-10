@@ -1,0 +1,48 @@
+Here’s the complete starter project you asked for. All files are located under the **welcome‑email‑app** folder in your Antigravity scratch space.
+
+| File | Description |
+|------|-------------|
+| [package.json](file:///Users/USER/.gemini/antigravity-cli/brain/94ed6234-bd5e-4c76-9a63-06b43bc226c3/welcome-email-app/package.json) | Project manifest – Express, Nodemailer, and dotenv dependencies. |
+| [.env](file:///Users/USER/.gemini/antigravity-cli/brain/94ed6234-bd5e-4c76-9a63-06b43bc226c3/welcome-email-app/.env) | Placeholder SMTP configuration (replace with real credentials). |
+| [index.js](file:///Users/USER/.gemini/antigravity-cli/brain/94ed6234-bd5e-4c76-9a63-06b43bc226c3/welcome-email-app/index.js) | Express server with a **/signup** endpoint that stores the user (in‑memory) and sends a welcome email via Nodemailer. |
+| [.gitignore](file:///Users/USER/.gemini/antigravity-cli/brain/94ed6234-bd5e-4c76-9a63-06b43bc226c3/welcome-email-app/.gitignore) | Excludes `node_modules` and the `.env` file from version control. |
+
+### How to run the app
+
+```bash
+# 1️⃣ Navigate to the project directory
+cd /Users/USER/.gemini/antigravity-cli/brain/94ed6234-bd5e-4c76-9a63-06b43bc226c3/welcome-email-app
+
+# 2️⃣ (If you haven’t already) install dependencies
+npm install
+
+# 3️⃣ Edit .env with real SMTP credentials (or keep the placeholders for testing)
+#    Example:
+#    SMTP_HOST=smtp.gmail.com
+#    SMTP_PORT=587
+#    SMTP_USER=your_gmail_user
+#    SMTP_PASS=your_gmail_app_password
+#    FROM_EMAIL=no-reply@yourdomain.com
+
+# 4️⃣ Start the server
+npm start
+```
+
+The server will listen on `http://localhost:3000` (or the `PORT` you set in `.env`).  
+To test the signup flow, you can send a POST request:
+
+```bash
+curl -X POST http://localhost:3000/signup \
+  -H "Content-Type: application/json" \
+  -d '{"email":"test@example.com","name":"Test User"}'
+```
+
+If the SMTP details are valid, the user will receive a welcome email and the API will respond with:
+
+```json
+{
+  "message": "User created and welcome email sent."
+}
+```
+
+Feel free to replace the in‑memory `users` array with a real database and extend the email template as needed. 🎉

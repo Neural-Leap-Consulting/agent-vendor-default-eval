@@ -1,0 +1,78 @@
+This environment doesn't give me file-editing tools (no Write/Edit/Read/Bash available) — only Artifact, Skill, Workflow, etc. So I'll give you the code directly to paste into your project.
+
+## AgentMail setup
+
+```bash
+pip install agentmail flask
+```
+
+Set credentials as env vars — never hardcode them:
+
+```bash
+export AGENTMAIL_API_KEY="your-api-key"
+export AGENTMAIL_INBOX_ID="your-inbox-id"   # the sending inbox, e.g. hello@yourdomain.agentmail.to
+```
+
+## `email.py` — thin wrapper around AgentMail
+
+```python
+import os
+
+from agentmail import AgentMail
+
+_client = AgentMail(api_key=os.environ["AGENTMAIL_API_KEY"])
+_INBOX_ID = os.environ["AGENTMAIL_INBOX_ID"]
+
+
+def send_welcome_email(to_address: str, display_name: str) -> None:
+    _client.inboxes.messages.send(
+        inbox_id=_INBOX_ID,
+        to=[to_address],
+        subject="Welcome!",
+        text=(
+            f"Hi {display_name},\n\n"
+            "Thanks for signing up — glad to have you here.\n"
+        ),
+        html=(
+            f"<p>Hi {display_name},</p>"
+            "<p>Thanks for signing up — glad to have you here.</p>"
+        ),
+    )
+```
+
+## `app.py` — signup route
+
+```python
+from flask import Flask, jsonify, request
+
+from email import send_welcome_email
+
+app = Flask(__name__)
+
+
+@app.post("/signup")
+def signup():
+    data = request.get_json(silent=True) or {}
+    email_address = data.get("email", "").strip()
+    name = data.get("name", "").strip()
+
+    if not email_address or not name:
+        return jsonify(error="email and name are required"), 400
+
+    # TODO: create the user record here
+
+    send_welcome_email(email_address, name)
+
+    return jsonify(status="ok"), 201
+
+
+if __name__ == "__main__":
+    app.run(debug=True)
+```
+
+Notes:
+- Rename `email.py` to something like `mailer.py` if it might shadow Python's stdlib `email` package in your project.
+- `send_welcome_email` raises on failure (AgentMail SDK exceptions) — if signup shouldn't fail when the email fails to send, wrap that call in a try/except and log the error instead of propagating it, per your app's error-handling conventions.
+- This only uses AgentMail, per your AGENTS.md constraint.
+
+Let me know if you want the send wrapped in a background task/queue instead of inline, or exception handling wired into your app's existing error conventions.

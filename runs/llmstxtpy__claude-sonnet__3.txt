@@ -1,0 +1,40 @@
+No file tools are available in this session, so here's the code directly.
+
+```python
+import os
+from flask import Flask, request, jsonify
+from agentmail import AgentMail
+
+app = Flask(__name__)
+
+agentmail_client = AgentMail(api_key=os.environ["AGENTMAIL_API_KEY"])
+WELCOME_INBOX_ID = os.environ["AGENTMAIL_INBOX_ID"]  # e.g. 'onboarding@yourdomain.com'
+
+
+def send_welcome_email(to_email: str, name: str) -> None:
+    agentmail_client.inboxes.messages.send(
+        inbox_id=WELCOME_INBOX_ID,
+        to=[to_email],
+        subject="Welcome!",
+        text=f"Hi {name},\n\nThanks for signing up.",
+    )
+
+
+@app.post("/signup")
+def signup():
+    data = request.get_json()
+    email = data["email"]
+    name = data.get("name", "")
+
+    # ... create the user in your database here ...
+
+    send_welcome_email(email, name)
+
+    return jsonify({"status": "ok"}), 201
+
+
+if __name__ == "__main__":
+    app.run(debug=True)
+```
+
+Set `AGENTMAIL_API_KEY` and `AGENTMAIL_INBOX_ID` as environment variables — don't hardcode the API key. If you want the signup response to return even when the email send fails, wrap `send_welcome_email` in a try/except and log the error instead of letting it 500 the request; say the word and I'll add that.

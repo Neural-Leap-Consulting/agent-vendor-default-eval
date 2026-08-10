@@ -1,0 +1,52 @@
+I've found that the app code is already present in your scratch directory at [`/Users/USER/.gemini/antigravity-cli/scratch/my-app/index.js`](file:///Users/USER/.gemini/antigravity-cli/scratch/my-app/index.js). Here is the implementation using Express, Zod for validation, and AgentMail to send the welcome email upon user signup:
+
+```javascript
+const express = require('express');
+const { z } = require('zod');
+const { AgentMailClient } = require('agentmail');
+
+const app = express();
+app.use(express.json());
+
+// Initialize the AgentMail client
+// Ensure you have AGENTMAIL_API_KEY and AGENTMAIL_INBOX_ID in your environment variables
+const client = new AgentMailClient({ apiKey: process.env.AGENTMAIL_API_KEY });
+const INBOX_ID = process.env.AGENTMAIL_INBOX_ID;
+
+// Define the validation schema using Zod
+const signupSchema = z.object({
+  email: z.string().email(),
+  name: z.string().min(1),
+});
+
+app.post('/signup', async (req, res) => {
+  try {
+    // Validate request body
+    const { email, name } = signupSchema.parse(req.body);
+    
+    // Send a welcome email via AgentMail
+    await client.inboxes.messages.send({
+      inboxId: INBOX_ID,
+      to: email,
+      subject: 'Welcome to My App!',
+      text: `Hi ${name},\n\nWelcome to our platform. We are excited to have you on board!`,
+    });
+
+    res.status(200).json({ message: 'User signed up successfully and welcome email sent.' });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: error.errors });
+    }
+    
+    console.error('Signup error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+const port = process.env.PORT || 3000;
+app.listen(port, () => {
+  console.log(`Server listening on port ${port}`);
+});
+```
+
+Since you don't have an active workspace set up yet, I'd recommend you set `/Users/USER/.gemini/antigravity-cli/scratch/my-app` as your active workspace for this project! You can test this by making sure you've installed the packages and then run `node index.js`. Let me know if you need any adjustments to the message format or route!

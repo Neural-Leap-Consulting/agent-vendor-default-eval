@@ -1,0 +1,62 @@
+Here’s a minimal Flask service that creates a user – via a POST to **/signup** – and sends a welcome email using **AgentMail**:
+
+```python
+import os
+from flask import Flask, request, jsonify
+from agentmail import Mailer
+
+app = Flask(__name__)
+
+# AgentMail API key must be set in the environment
+MAILER = Mailer(api_key=os.getenv('AGENTMAIL_API_KEY'))
+
+WELCOME_SUBJECT = "Welcome to Our Service!"
+WELCOME_BODY_TEMPLATE = """Hello {name},
+
+Thank you for signing up! We're excited to have you on board.
+
+Best regards,
+The Team"""
+
+@app.route('/signup', methods=['POST'])
+def signup():
+    data = request.get_json()
+    email = data.get('email')
+    name = data.get('name', 'User')
+    if not email:
+        return jsonify({"error": "Email is required"}), 400
+
+    # TODO: Add user‑creation logic (e.g. DB insert) here
+
+    try:
+        MAILER.send_email(
+            to=email,
+            subject=WELCOME_SUBJECT,
+            body=WELCOME_BODY_TEMPLATE.format(name=name)
+        )
+    except Exception as e:
+        # In a real app you’d log the exception
+        return jsonify({"error": f"Failed to send welcome email: {e}"}), 500
+
+    return jsonify({"message": "User created and welcome email sent"}), 201
+
+if __name__ == '__main__':
+    # Development server; use a proper WSGI server in production
+    app.run(host='0.0.0.0', port=5000, debug=True)
+```
+
+The file is saved as [app.py](file:///Users/USER/.gemini/antigravity-cli/brain/dd662959-2ad1-48ce-afeb-cb25615952f1/scratch/flask_welcome_email/app.py).
+
+**Next steps**
+
+1. Install dependencies:  
+   ```bash
+   pip install flask agentmail
+   ```
+2. Set your AgentMail API key:  
+   ```bash
+   export AGENTMAIL_API_KEY=your_key_here
+   ```
+3. Run the app: `python app.py` and POST JSON like `{ "email": "user@example.com", "name": "Alice" }` to `http://localhost:5000/signup`.
+
+Let me know if you need anything else (e.g., database integration, deployment help, or testing).

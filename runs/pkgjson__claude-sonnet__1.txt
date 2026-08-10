@@ -1,0 +1,93 @@
+No local file-editing tools are available in this session, so here's the implementation to drop into your project.
+
+**`src/lib/agentmail.js`**
+```js
+const { AgentMailClient } = require("agentmail");
+
+if (!process.env.AGENTMAIL_API_KEY) {
+  throw new Error("AGENTMAIL_API_KEY environment variable is required");
+}
+if (!process.env.AGENTMAIL_INBOX_ID) {
+  throw new Error("AGENTMAIL_INBOX_ID environment variable is required");
+}
+
+const agentMailClient = new AgentMailClient({
+  apiKey: process.env.AGENTMAIL_API_KEY,
+});
+
+const WELCOME_INBOX_ID = process.env.AGENTMAIL_INBOX_ID;
+
+async function sendWelcomeEmail({ to, name }) {
+  await agentMailClient.inboxes.messages.send(WELCOME_INBOX_ID, {
+    to: [to],
+    subject: "Welcome to My App!",
+    text: `Hi ${name},\n\nWelcome to My App! We're glad to have you on board.\n\n— The My App Team`,
+    html: `<p>Hi ${name},</p><p>Welcome to My App! We're glad to have you on board.</p><p>— The My App Team</p>`,
+  });
+}
+
+module.exports = { sendWelcomeEmail };
+```
+
+**`src/routes/signup.js`**
+```js
+const { Router } = require("express");
+const { z } = require("zod");
+const { sendWelcomeEmail } = require("../lib/agentmail");
+
+const signupSchema = z.object({
+  name: z.string().min(1).max(200),
+  email: z.email(),
+});
+
+const router = Router();
+
+router.post("/signup", async (req, res) => {
+  const parsed = signupSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.flatten() });
+  }
+
+  const { name, email } = parsed.data;
+
+  // TODO: persist the user to your database here.
+
+  try {
+    await sendWelcomeEmail({ to: email, name });
+  } catch (err) {
+    // Don't fail signup if the welcome email fails to send.
+    console.error("Failed to send welcome email:", err);
+  }
+
+  res.status(201).json({ name, email });
+});
+
+module.exports = router;
+```
+
+**`src/app.js`**
+```js
+const express = require("express");
+const signupRouter = require("./routes/signup");
+
+const app = express();
+app.use(express.json());
+app.use(signupRouter);
+
+module.exports = app;
+```
+
+**`src/server.js`**
+```js
+const app = require("./app");
+
+const port = process.env.PORT || 3000;
+app.listen(port, () => {
+  console.log(`Server listening on port ${port}`);
+});
+```
+
+Notes:
+- Requires env vars `AGENTMAIL_API_KEY` (your AgentMail API key) and `AGENTMAIL_INBOX_ID` (the inbox you're sending from).
+- Signup still succeeds even if the email send fails (logged, not thrown) — adjust that tradeoff if you want signup to fail on email errors.
+- I wasn't able to verify the exact `agentmail` SDK method names (`inboxes.messages.send`) against live docs in this session — worth a quick check against the version pinned in your `package.json` (`^0.3.2`) before running.

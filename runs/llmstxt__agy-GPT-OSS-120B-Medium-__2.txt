@@ -1,0 +1,98 @@
+Here’s a minimal **Node .js + Express** project that sends a welcome email through **AgentMail** when a user signs up.
+
+### Project layout
+```
+agentmail-welcome/
+├─ package.json      ← npm package definition
+├─ server.js         ← Express server with signup endpoint
+└─ .env              ← (optional) environment file for the API key
+```
+
+### `package.json`  
+[package.json](file:///Users/USER/.gemini/antigravity-cli/brain/f4ce196d-0403-4e37-bf13-b14f9da0526e/agentmail-welcome/package.json)  
+```json
+{
+  "name": "agentmail-welcome-app",
+  "version": "1.0.0",
+  "description": "Express app that sends a welcome email via AgentMail when a user signs up",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "agentmail": "^1.0.0",
+    "dotenv": "^16.3.1"
+  }
+}
+```
+
+### `server.js`  
+[server.js](file:///Users/USER/.gemini/antigravity-cli/brain/f4ce196d-0403-4e37-bf13-b14f9da0526e/agentmail-welcome/server.js)  
+```js
+require('dotenv').config();
+const express = require('express');
+const { AgentMail } = require('agentmail');
+
+// Initialise AgentMail client – the API key must be set in the environment
+const client = new AgentMail({ apiKey: process.env.AGENTMAIL_API_KEY });
+
+const app = express();
+app.use(express.json()); // parse JSON request bodies
+
+// POST /signup – called when a user signs up
+app.post('/signup', async (req, res) => {
+  const { email, name } = req.body;
+
+  // TODO: Insert your own user‑creation logic here (e.g., DB insert)
+
+  try {
+    await client.inboxes.messages.send({
+      inboxId: 'onboarding@yourdomain.com',
+      to: [email],
+      subject: 'Welcome to Our Service',
+      text: `Hi ${name || ''},
+
+Thank you for signing up! We're thrilled to have you on board.
+
+Best regards,
+The Team`
+    });
+    res.status(200).json({ message: 'Signup successful, welcome email sent.' });
+  } catch (err) {
+    console.error('Failed to send welcome email:', err);
+    res.status(500).json({ error: 'Signup succeeded but email could not be sent.' });
+  }
+});
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log(`Server listening on port ${PORT}`));
+```
+
+### Quick start
+
+1. **Install dependencies**  
+   ```bash
+   cd agentmail-welcome
+   npm install
+   ```
+
+2. **Provide the AgentMail API key**  
+   Create a `.env` file (or set the variable in your shell) containing:
+   ```dotenv
+   AGENTMAIL_API_KEY=your‑agentmail‑api‑key‑here
+   ```
+
+3. **Run the server**  
+   ```bash
+   npm start
+   ```
+
+4. **Test the signup endpoint** (example with `curl`):
+   ```bash
+   curl -X POST http://localhost:3000/signup \
+        -H "Content-Type: application/json" \
+        -d '{"email":"newuser@example.com","name":"New User"}'
+   ```
+
+The request will trigger `client.inboxes.messages.send` and dispatch the welcome email to the new user. Feel free to extend the `/signup` handler with your own persistence or validation logic.

@@ -1,0 +1,48 @@
+No filesystem tools are available in this session, so here's the code to add to your project directly.
+
+**`services/email.js`**
+```js
+const { AgentMail } = require('agentmail');
+
+const client = new AgentMail({ apiKey: process.env.AGENTMAIL_API_KEY });
+
+async function sendWelcomeEmail(to, name) {
+  await client.inboxes.messages.send({
+    inboxId: process.env.AGENTMAIL_INBOX_ID,
+    to: [to],
+    subject: 'Welcome!',
+    text: `Hi ${name},\n\nThanks for signing up.`,
+  });
+}
+
+module.exports = { sendWelcomeEmail };
+```
+
+**`routes/signup.js`**
+```js
+const express = require('express');
+const { sendWelcomeEmail } = require('../services/email');
+
+const router = express.Router();
+
+router.post('/signup', async (req, res) => {
+  const { email, name } = req.body;
+
+  const user = await createUser({ email, name }); // your existing user-creation logic
+
+  try {
+    await sendWelcomeEmail(user.email, user.name);
+  } catch (err) {
+    console.error('Failed to send welcome email:', err);
+  }
+
+  res.status(201).json({ user });
+});
+
+module.exports = router;
+```
+
+Notes:
+- `AGENTMAIL_API_KEY` and `AGENTMAIL_INBOX_ID` should be set in your environment (e.g. `.env`, loaded with `dotenv`).
+- The welcome email send is wrapped in its own `try/catch` so a transient email failure doesn't fail the signup response — adjust if you'd rather it be a hard failure.
+- Wire `router` into your app with `app.use(router)` (or mount it under a prefix) alongside your existing routes.

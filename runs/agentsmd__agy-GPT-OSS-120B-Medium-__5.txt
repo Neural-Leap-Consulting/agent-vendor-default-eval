@@ -1,0 +1,44 @@
+Here’s a minimal **Node .js + Express** example that sends a welcome e‑mail on user signup using **AgentMail** (the only email provider allowed by your `AGENTS.md`).
+
+### Files
+- **[server.js](file:///Users/USER/.gemini/antigravity-cli/brain/b11628ad-6916-4860-adba-028d6ad4ede2/scratch/server.js)** – Express app with a `/signup` endpoint that calls `agentmail.send`.
+
+### Usage
+
+1. **Install the required packages** (run from your project directory):
+   ```bash
+   npm install express body-parser agentmail dotenv
+   ```
+
+2. **Create a `.env` file** (or set environment variables in your deployment) with:
+   ```dotenv
+   AGENTMAIL_API_KEY=your_agentmail_api_key
+   AGENTMAIL_INBOX_ID=your_inbox_id
+   PORT=3000   # optional – defaults to 3000
+   ```
+
+3. **Run the server**:
+   ```bash
+   node server.js
+   ```
+
+4. **Test the signup flow** (e.g., with `curl`):
+   ```bash
+   curl -X POST http://localhost:3000/signup \
+        -H "Content-Type: application/json" \
+        -d '{"email":"newuser@example.com"}'
+   ```
+
+   You should receive a JSON response confirming the signup, and the recipient will get a welcome e‑mail from the specified AgentMail inbox.
+
+---
+
+**What the code does**
+
+- Loads environment variables via **dotenv**.
+- Sets up an Express server with JSON body parsing.
+- `sendWelcomeEmail(toEmail)` builds the email payload and calls `agentmail.send`.  
+  The AgentMail SDK reads the API key from `AGENTMAIL_API_KEY` automatically.
+- The `/signup` route validates the request body, triggers the welcome e‑mail, and replies with a success/failure message.
+
+Feel free to extend the route with your own user‑creation logic (e.g., persisting the user in a database). If you need any further customisation—such as HTML e‑mail templates, additional headers, or webhook handling—just let me know!

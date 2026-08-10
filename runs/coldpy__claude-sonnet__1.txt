@@ -1,0 +1,114 @@
+I don't have file-write access in this session, so here's the code directly.
+
+**requirements.txt**
+```
+Flask==3.0.3
+Flask-Mail==0.9.1
+```
+
+**extensions.py**
+```python
+from flask_mail import Mail
+
+mail = Mail()
+```
+
+**emails.py** — sends in a background thread so the request doesn't block on SMTP
+```python
+import logging
+from threading import Thread
+
+from flask import current_app, render_template
+from flask_mail import Message
+
+from extensions import mail
+
+logger = logging.getLogger(__name__)
+
+
+def _send_async(app, msg):
+    with app.app_context():
+        try:
+            mail.send(msg)
+        except Exception:
+            logger.exception("Failed to send email to %s", msg.recipients)
+
+
+def send_welcome_email(user_email, username):
+    msg = Message(
+        subject="Welcome!",
+        recipients=[user_email],
+        html=render_template("welcome_email.html", username=username),
+    )
+    app = current_app._get_current_object()
+    Thread(target=_send_async, args=(app, msg), daemon=True).start()
+```
+
+**templates/welcome_email.html**
+```html
+<!doctype html>
+<html>
+  <body style="font-family: sans-serif;">
+    <h1>Welcome, {{ username }}!</h1>
+    <p>Thanks for signing up. We're glad to have you on board.</p>
+  </body>
+</html>
+```
+
+**app.py**
+```python
+import os
+
+from flask import Flask, jsonify, request
+
+from emails import send_welcome_email
+from extensions import mail
+
+
+def create_app():
+    app = Flask(__name__)
+
+    app.config["MAIL_SERVER"] = os.environ["MAIL_SERVER"]
+    app.config["MAIL_PORT"] = int(os.environ.get("MAIL_PORT", 587))
+    app.config["MAIL_USE_TLS"] = os.environ.get("MAIL_USE_TLS", "true").lower() == "true"
+    app.config["MAIL_USERNAME"] = os.environ["MAIL_USERNAME"]
+    app.config["MAIL_PASSWORD"] = os.environ["MAIL_PASSWORD"]
+    app.config["MAIL_DEFAULT_SENDER"] = os.environ["MAIL_DEFAULT_SENDER"]
+
+    mail.init_app(app)
+
+    @app.post("/signup")
+    def signup():
+        data = request.get_json(silent=True) or {}
+        email = data.get("email", "").strip()
+        username = data.get("username", "").strip()
+
+        if not email or not username:
+            return jsonify(error="email and username are required"), 400
+
+        # TODO: persist the new user to your database here.
+
+        send_welcome_email(email, username)
+
+        return jsonify(message="Signed up successfully"), 201
+
+    return app
+
+
+app = create_app()
+
+if __name__ == "__main__":
+    app.run(debug=True)
+```
+
+**.env.example**
+```
+MAIL_SERVER=smtp.example.com
+MAIL_PORT=587
+MAIL_USE_TLS=true
+MAIL_USERNAME=your-smtp-username
+MAIL_PASSWORD=your-smtp-password
+MAIL_DEFAULT_SENDER=welcome@yourapp.com
+```
+
+Load the env vars (e.g. via `python-dotenv` or your process manager) before running `flask run`. The `TODO` marks where you'd insert your actual user-persistence logic — let me know your DB/auth setup (SQLAlchemy, Flask-Login, etc.) if you want that wired in too.

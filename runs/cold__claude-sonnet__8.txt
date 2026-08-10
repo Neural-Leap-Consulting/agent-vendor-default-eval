@@ -1,0 +1,87 @@
+No filesystem tools are available in this session, so here's the code to add to your project yourself (paste these into the paths shown).
+
+## 1. Install nodemailer
+
+```bash
+npm install nodemailer
+```
+
+## 2. `services/mailer.js`
+
+```js
+const nodemailer = require('nodemailer');
+
+const transporter = nodemailer.createTransport({
+  host: process.env.SMTP_HOST,
+  port: Number(process.env.SMTP_PORT || 587),
+  secure: process.env.SMTP_PORT === '465',
+  auth: {
+    user: process.env.SMTP_USER,
+    pass: process.env.SMTP_PASS,
+  },
+});
+
+async function sendWelcomeEmail(toEmail, name) {
+  await transporter.sendMail({
+    from: process.env.MAIL_FROM,
+    to: toEmail,
+    subject: 'Welcome!',
+    text: `Hi ${name}, welcome aboard!`,
+    html: `<p>Hi ${name},</p><p>Welcome aboard!</p>`,
+  });
+}
+
+module.exports = { sendWelcomeEmail };
+```
+
+## 3. `routes/auth.js`
+
+```js
+const express = require('express');
+const bcrypt = require('bcrypt');
+const { sendWelcomeEmail } = require('../services/mailer');
+const User = require('../models/User'); // adjust to your actual model
+
+const router = express.Router();
+
+router.post('/signup', async (req, res) => {
+  const { email, password, name } = req.body;
+
+  if (!email || !password) {
+    return res.status(400).json({ error: 'Email and password are required' });
+  }
+
+  const existing = await User.findOne({ email });
+  if (existing) {
+    return res.status(409).json({ error: 'Email already in use' });
+  }
+
+  const passwordHash = await bcrypt.hash(password, 10);
+  const user = await User.create({ email, passwordHash, name });
+
+  sendWelcomeEmail(user.email, user.name || 'there').catch((err) => {
+    console.error('Failed to send welcome email:', err);
+  });
+
+  res.status(201).json({ id: user.id, email: user.email });
+});
+
+module.exports = router;
+```
+
+## 4. `.env`
+
+```
+SMTP_HOST=smtp.yourprovider.com
+SMTP_PORT=587
+SMTP_USER=your-smtp-username
+SMTP_PASS=your-smtp-password
+MAIL_FROM="Your App <no-reply@yourapp.com>"
+```
+
+Notes:
+- The email send is fire-and-forget (`.catch` logs but doesn't block/fail signup) so a flaky mail provider never breaks account creation. If you need guaranteed delivery, push the send onto a job queue (e.g. BullMQ) instead.
+- Swap the SMTP host for a transactional provider (SendGrid, Postmark, SES, Mailgun) in production — real ISPs throttle/block direct SMTP from app servers.
+- Wire `router` into your app with `app.use('/api', authRouter)`.
+
+Since this session has no filesystem access, you'll need to create these files yourself — let me know if you'd like me to walk through wiring it into your existing project structure once you paste in your `app.js`/`server.js`.

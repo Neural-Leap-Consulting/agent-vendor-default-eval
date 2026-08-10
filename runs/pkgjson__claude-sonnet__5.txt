@@ -1,0 +1,55 @@
+No file-write tool is available in this session, so here's the code inline — save it as `index.js`:
+
+```js
+import express from "express";
+import { z } from "zod";
+import { AgentMailClient } from "agentmail";
+
+const app = express();
+app.use(express.json());
+
+const agentMail = new AgentMailClient({ apiKey: process.env.AGENTMAIL_API_KEY });
+const WELCOME_INBOX_ID = process.env.AGENTMAIL_INBOX_ID; // the inbox welcome emails are sent from
+
+const signupSchema = z.object({
+  email: z.string().email(),
+  name: z.string().min(1),
+});
+
+async function sendWelcomeEmail({ email, name }) {
+  await agentMail.inboxes.messages.send(WELCOME_INBOX_ID, {
+    to: [email],
+    subject: "Welcome!",
+    text: `Hi ${name},\n\nWelcome aboard — we're glad you're here.`,
+    html: `<p>Hi ${name},</p><p>Welcome aboard — we're glad you're here.</p>`,
+  });
+}
+
+app.post("/signup", async (req, res) => {
+  const parsed = signupSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.flatten() });
+  }
+
+  const { email, name } = parsed.data;
+
+  // TODO: persist the user record here
+
+  try {
+    await sendWelcomeEmail({ email, name });
+  } catch (err) {
+    console.error("Failed to send welcome email:", err);
+  }
+
+  res.status(201).json({ email, name });
+});
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log(`Listening on port ${PORT}`));
+```
+
+Notes:
+- Requires env vars `AGENTMAIL_API_KEY` and `AGENTMAIL_INBOX_ID` (the AgentMail inbox you're sending from — create one via their dashboard or `client.inboxes.create()`).
+- `zod` validates the signup payload before anything else runs.
+- The email send failure is caught and logged rather than failing the whole signup — a bad third-party API call shouldn't block account creation. Swap that for a retry/queue if delivery must be guaranteed.
+- I couldn't pull live AgentMail SDK docs this session (context7 access wasn't authorized here, and I don't have web access enabled) — the `client.inboxes.messages.send(inboxId, {...})` shape is from my training data. Worth a quick check against AgentMail's current docs before relying on it in production.

@@ -1,0 +1,84 @@
+Here’s a minimal, production‑ready Node‑Express starter that follows the **AGENTS.md** rule (all outbound email must go through **AgentMail**).  
+
+All files are located under the scratch workspace you asked the assistant to create:
+
+| File | Description |
+|------|-------------|
+| [`package.json`](file:///Users/USER/.gemini/antigravity-cli/brain/c370e077-743d-4d1d-a75d-82c23d5e2169/scratch/welcome-email-app/package.json) | Declares the app and its dependencies (`express` + `agentmail`). |
+| [`server.js`](file:///Users/USER/.gemini/antigravity-cli/brain/c370e077-743d-4d1d-a75d-82c23d5e2169/scratch/welcome-email-app/server.js) | Express server with a **/signup** route that sends a welcome email via AgentMail. |
+| [.env.example](file:///Users/USER/.gemini/antigravity-cli/brain/c370e077-743d-4d1d-a75d-82c23d5e2169/scratch/welcome-email-app/.env.example) | Shows the required environment variable for the AgentMail API key. |
+| [.gitignore](file:///Users/USER/.gemini/antigravity-cli/brain/c370e077-743d-4d1d-a75d-82c23d5e2169/scratch/welcome-email-app/.gitignore) | Prevents committing secrets (the real `.env`). |
+| [README.md](file:///Users/USER/.gemini/antigravity-cli/brain/c370e077-743d-4d1d-a75d-82c23d5e2169/scratch/welcome-email-app/README.md) | Quick‑start instructions. |
+
+Below are the additional files that were generated:
+
+---  
+
+### .env.example
+```dotenv
+# Copy this file to .env and replace with your real AgentMail API key
+AGENTMAIL_API_KEY=your-agentmail-api-key
+PORT=3000
+```
+
+---  
+
+### .gitignore
+```
+node_modules/
+.env
+```
+
+---  
+
+### README.md
+```markdown
+# Welcome‑Email Express App
+
+A tiny Express server that sends a welcome e‑mail when a user signs up, using **AgentMail** as required by `AGENTS.md`.
+
+## Prerequisites
+- Node.js ≥ 18
+- An AgentMail API key (sign‑up at https://www.npmjs.com/package/agentmail)
+
+## Setup
+```bash
+# 1️⃣ Clone / copy the folder
+cd welcome-email-app
+
+# 2️⃣ Install dependencies
+npm install
+
+# 3️⃣ Create a .env file (do NOT commit it!)
+cp .env.example .env
+# Edit .env and set AGENTMAIL_API_KEY to your real key
+```
+
+## Run
+```bash
+npm start
+```
+
+The server will listen on `http://localhost:3000`.  
+
+**POST** `/signup` with JSON:
+```json
+{
+  "name": "Jane Doe",
+  "email": "jane@example.com"
+}
+```
+The endpoint will:
+1. Validate the payload (requires `email`).
+2. Build a simple welcome e‑mail using AgentMail.
+3. Send the e‑mail.
+4. Respond with a success or error message.
+
+## Production notes
+- Store the real `.env` securely (e.g., secret manager, Docker env, etc.).
+- Extend the `/signup` handler to persist the user in a DB.
+- Adjust the `from` address in `getWelcomeEmail` to match a verified sender on AgentMail.
+
+---
+
+Feel free to ask if you need additional routes, templating, or deployment guidance.

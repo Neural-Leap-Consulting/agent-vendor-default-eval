@@ -1,0 +1,243 @@
+No Read/Write/Bash tools are available in this session, so I can't create the files directly — here's the complete code to drop in.
+
+## Structure
+
+```
+src/
+  app.js          # express app
+  server.js       # entrypoint
+  email.js        # nodemailer transport + welcome email
+  users.js        # user store (swap for your DB)
+  routes/auth.js  # POST /signup
+.env
+```
+
+## `package.json`
+
+```json
+{
+  "name": "signup-app",
+  "type": "module",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js"
+  },
+  "dependencies": {
+    "bcrypt": "^5.1.1",
+    "dotenv": "^16.4.5",
+    "express": "^5.0.1",
+    "nodemailer": "^6.9.14",
+    "zod": "^3.23.8"
+  }
+}
+```
+
+## `.env`
+
+```bash
+PORT=3000
+APP_NAME=Acme
+APP_URL=https://acme.example.com
+
+SMTP_HOST=smtp.example.com
+SMTP_PORT=587
+SMTP_USER=apikey
+SMTP_PASS=changeme
+MAIL_FROM="Acme <hello@acme.example.com>"
+```
+
+## `src/email.js`
+
+```js
+import nodemailer from 'nodemailer';
+
+const transporter = nodemailer.createTransport({
+  host: process.env.SMTP_HOST,
+  port: Number(process.env.SMTP_PORT ?? 587),
+  secure: Number(process.env.SMTP_PORT) === 465, // true for 465, STARTTLS otherwise
+  auth: {
+    user: process.env.SMTP_USER,
+    pass: process.env.SMTP_PASS,
+  },
+});
+
+const APP_NAME = process.env.APP_NAME ?? 'Our App';
+const APP_URL = process.env.APP_URL ?? 'http://localhost:3000';
+
+function welcomeTemplate({ name }) {
+  const greeting = name ? `Hi ${name},` : 'Hi there,';
+
+  const text = [
+    greeting,
+    '',
+    `Welcome to ${APP_NAME} — your account is ready.`,
+    '',
+    `Get started: ${APP_URL}`,
+    '',
+    `If you didn't create this account, just ignore this email.`,
+    '',
+    `— The ${APP_NAME} team`,
+  ].join('\n');
+
+  const html = `
+    <div style="font-family:system-ui,-apple-system,sans-serif;font-size:16px;line-height:1.5;color:#1a1a1a;max-width:520px">
+      <p>${greeting}</p>
+      <p>Welcome to <strong>${APP_NAME}</strong> — your account is ready.</p>
+      <p>
+        <a href="${APP_URL}"
+           style="display:inline-block;padding:10px 18px;background:#1a1a1a;color:#fff;text-decoration:none;border-radius:6px">
+          Get started
+        </a>
+      </p>
+      <p style="color:#666;font-size:14px">If you didn't create this account, you can ignore this email.</p>
+      <p style="color:#666;font-size:14px">— The ${APP_NAME} team</p>
+    </div>
+  `;
+
+  return { text, html };
+}
+
+export async function sendWelcomeEmail({ to, name }) {
+  const { text, html } = welcomeTemplate({ name });
+
+  return transporter.sendMail({
+    from: process.env.MAIL_FROM,
+    to,
+    subject: `Welcome to ${APP_NAME}`,
+    text,
+    html,
+  });
+}
+
+// Optional: fail fast at boot instead of on the first signup.
+export async function verifyMailer() {
+  await transporter.verify();
+}
+```
+
+## `src/users.js`
+
+Replace this with your real database layer — the interface is what matters.
+
+```js
+import bcrypt from 'bcrypt';
+
+const usersByEmail = new Map();
+
+export async function createUser({ email, password, name }) {
+  const normalized = email.trim().toLowerCase();
+
+  if (usersByEmail.has(normalized)) {
+    const err = new Error('Email already registered');
+    err.code = 'EMAIL_TAKEN';
+    throw err;
+  }
+
+  const user = {
+    id: crypto.randomUUID(),
+    email: normalized,
+    name: name ?? null,
+    passwordHash: await bcrypt.hash(password, 12),
+    createdAt: new Date(),
+  };
+
+  usersByEmail.set(normalized, user);
+  return user;
+}
+```
+
+## `src/routes/auth.js`
+
+```js
+import { Router } from 'express';
+import { z } from 'zod';
+import { createUser } from '../users.js';
+import { sendWelcomeEmail } from '../email.js';
+
+const router = Router();
+
+const signupSchema = z.object({
+  email: z.string().email().max(254),
+  password: z.string().min(8).max(200),
+  name: z.string().trim().min(1).max(100).optional(),
+});
+
+router.post('/signup', async (req, res, next) => {
+  const parsed = signupSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: 'Invalid input', details: parsed.error.flatten().fieldErrors });
+  }
+
+  let user;
+  try {
+    user = await createUser(parsed.data);
+  } catch (err) {
+    if (err.code === 'EMAIL_TAKEN') {
+      return res.status(409).json({ error: 'Email already registered' });
+    }
+    return next(err);
+  }
+
+  // Send the welcome email out of band: a mail outage must not fail a signup
+  // that already succeeded. Swap for a job queue when you have one.
+  sendWelcomeEmail({ to: user.email, name: user.name }).catch((err) => {
+    console.error('welcome email failed', { userId: user.id, err: err.message });
+  });
+
+  res.status(201).json({ id: user.id, email: user.email, name: user.name });
+});
+
+export default router;
+```
+
+## `src/app.js`
+
+```js
+import express from 'express';
+import authRoutes from './routes/auth.js';
+
+const app = express();
+
+app.use(express.json({ limit: '10kb' }));
+app.use('/auth', authRoutes);
+
+app.get('/health', (_req, res) => res.json({ ok: true }));
+
+// eslint-disable-next-line no-unused-vars -- Express identifies error handlers by arity
+app.use((err, _req, res, _next) => {
+  console.error(err);
+  res.status(500).json({ error: 'Internal server error' });
+});
+
+export default app;
+```
+
+## `src/server.js`
+
+```js
+import 'dotenv/config';
+import app from './app.js';
+
+const port = Number(process.env.PORT ?? 3000);
+app.listen(port, () => console.log(`listening on :${port}`));
+```
+
+## Try it
+
+```bash
+npm install
+npm start
+
+curl -X POST localhost:3000/auth/signup \
+  -H 'content-type: application/json' \
+  -d '{"email":"you@example.com","password":"hunter2hunter2","name":"Sam"}'
+```
+
+## Two decisions worth knowing about
+
+**The email send is deliberately not awaited.** If your SMTP provider is down or slow, awaiting it means the user's account exists but they get a 500 and likely retry — hitting the duplicate-email path on an account that's already theirs. Fire-and-forget with a logged `.catch()` keeps signup correct. The real fix at scale is enqueueing a job (BullMQ, SQS, your DB as a queue) so failed sends get retried rather than just logged; the call site stays the same shape.
+
+**`users.js` is an in-memory `Map`** so this runs standalone. Data disappears on restart and it won't work across multiple processes — replace `createUser` with your DB insert, relying on a unique index on `email` to raise the duplicate error rather than the `Map.has` check, which races under concurrency.
+
+If you tell me your mail provider (SendGrid, Resend, SES, Postmark) and your database, I'll adapt `email.js` and `users.js` to those specifically.

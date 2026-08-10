@@ -1,0 +1,172 @@
+Below is a minimal **Flask** application that registers a new user (mocked for this example) and sends a welcome email using **AgentMail** – the only email provider allowed by your `AGENTS.md` policy.
+
+---
+
+## 1️⃣ Install the required packages  
+
+Add the following to your `requirements.txt` (or install directly with `pip`):
+
+```text
+Flask
+agentmail
+python-dotenv
+```
+
+```bash
+pip install -r requirements.txt
+```
+
+---
+
+## 2️⃣ Create a `.env` file (keep it out of version control)  
+
+```dotenv
+# .env – store your secret API key securely
+AGENTMAIL_API_KEY=your‑agentmail‑api‑key‑here
+```
+
+---
+
+## 3️⃣ `app.py` – Flask app with signup & welcome email  
+
+```python
+# app.py
+import os
+from flask import Flask, request, jsonify
+from agentmail import AgentMail
+from dotenv import load_dotenv
+
+# ----------------------------------------------------------------------
+# Load environment variables (API key, etc.)
+# ----------------------------------------------------------------------
+load_dotenv()  # reads .env in the current working directory
+AGENTMAIL_API_KEY = os.getenv("AGENTMAIL_API_KEY")
+if not AGENTMAIL_API_KEY:
+    raise RuntimeError("AGENTMAIL_API_KEY missing – set it in .env")
+
+# ----------------------------------------------------------------------
+# Initialise the AgentMail client – reuse across requests
+# ----------------------------------------------------------------------
+agentmail_client = AgentMail(api_key=AGENTMAIL_API_KEY)
+
+# ----------------------------------------------------------------------
+# Create a dedicated inbox for the application (run once, or reuse the ID)
+# ----------------------------------------------------------------------
+# You can manually create an inbox in the AgentMail console and hard‑code
+# its ID here, or create it programatically the first time the app starts.
+# For simplicity we assume an existing inbox ID is stored in env:
+AGENTMAIL_INBOX_ID = os.getenv("AGENTMAIL_INBOX_ID")
+if not AGENTMAIL_INBOX_ID:
+    # Create an inbox on first run and persist the ID (e.g. write back to .env)
+    inbox = agentmail_client.inboxes.create(username="my-flask-app")
+    AGENTMAIL_INBOX_ID = inbox.inbox_id
+    # NOTE: In production you’d store this securely, not rewrite .env at runtime.
+    print(f"Created new AgentMail inbox: {AGENTMAIL_INBOX_ID}")
+
+# ----------------------------------------------------------------------
+# Flask app definition
+# ----------------------------------------------------------------------
+app = Flask(__name__)
+
+# ----------------------------------------------------------------------
+# Helper: send welcome email via AgentMail
+# ----------------------------------------------------------------------
+def send_welcome_email(to_address: str, user_name: str) -> None:
+    """Send a welcome email using the AgentMail API."""
+    subject = "Welcome to Our Service!"
+    # Plain‑text fallback (good for deliverability)
+    text_body = f"""\
+Hi {user_name},
+
+Welcome to our platform! We're thrilled to have you on board.
+
+If you have any questions, just hit reply – we’ll be here to help.
+
+Best regards,
+The Team
+"""
+
+    # Simple HTML version (optional but recommended)
+    html_body = f"""\
+<html>
+  <body style="font-family:Arial,Helvetica,sans-serif; line-height:1.5;">
+    <h1 style="color:#2C3E50;">Welcome, {user_name}!</h1>
+    <p>
+      We're thrilled to have you on board. If you have any questions,
+      just hit <strong>reply</strong> – we’ll be here to help.
+    </p>
+    <p>Best regards,<br>The Team</p>
+  </body>
+</html>
+"""
+
+    # Send the email via the configured inbox
+    agentmail_client.inboxes.messages.send(
+        inbox_id=AGENTMAIL_INBOX_ID,
+        to=[to_address],
+        subject=subject,
+        text=text_body,
+        html=html_body,
+    )
+    print(f"Welcome email sent to {to_address}")
+
+# ----------------------------------------------------------------------
+# Route: user signup (POST /signup)
+# ----------------------------------------------------------------------
+@app.route("/signup", methods=["POST"])
+def signup():
+    """
+    Expected JSON payload:
+    {
+        "email": "user@example.com",
+        "name": "Jane Doe",
+        "password": "plain‑or‑hashed‑pwd"
+    }
+    """
+    data = request.get_json(silent=True)
+    if not data:
+        return jsonify({"error": "Invalid JSON"}), 400
+
+    email = data.get("email")
+    name = data.get("name")
+    if not email or not name:
+        return jsonify({"error": "Missing required fields"}), 400
+
+    # ------------------------------------------------------------------
+    # TODO: Persist the new user (e.g., database insert, password hashing)
+    # For this snippet we simply acknowledge the request.
+    # ------------------------------------------------------------------
+    # send_welcome_email will raise if the API call fails; let Flask surface
+    # the 500 error so you can add proper error handling later.
+    send_welcome_email(to_address=email, user_name=name)
+
+    return jsonify({"message": f"User {name} created, welcome email sent"}), 201
+
+# ----------------------------------------------------------------------
+# Entry point
+# ----------------------------------------------------------------------
+if __name__ == "__main__":
+    # Development server – not for production
+    app.run(host="0.0.0.0", port=5000, debug=True)
+```
+
+---
+
+### How it works  
+
+1. **Environment** – The API key (`AGENTMAIL_API_KEY`) and optional inbox ID (`AGENTMAIL_INBOX_ID`) are loaded from a **.env** file, keeping secrets out of source control.  
+2. **AgentMail client** – A single `AgentMail` instance is created at startup and reused for all email sends.  
+3. **Inbox** – The code either reuses an existing inbox (recommended) or creates one the first time the app runs.  
+4. **`/signup` endpoint** – Accepts a JSON payload, validates the required fields, (placeholder) creates the user, then calls `send_welcome_email`.  
+5. **Welcome email** – Sends both plain‑text and HTML versions for best deliverability, complying with the rule *“All outbound email goes through AgentMail (`agentmail` on PyPI). Do not add other email providers.”*
+
+---
+
+### Next steps you may want to add  
+
+* **Database integration** – store users securely (e.g., SQLAlchemy).  
+* **Password hashing** – use `werkzeug.security.generate_password_hash`.  
+* **Error handling** – catch `agentmail` exceptions and return friendly JSON errors.  
+* **Production server** – run behind a WSGI server (Gunicorn, uWSGI) and disable `debug`.  
+
+Feel free to adapt the email template or add additional fields as needed. 🎉

@@ -1,0 +1,37 @@
+Here’s a minimal Flask app that sends a welcome email using **AgentMail** (the only allowed email provider per your `AGENTS.md`).
+
+| File | Purpose |
+|------|---------|
+| [`app.py`](file:///Users/USER/.gemini/antigravity-cli/brain/bd43936a-7fdc-40ea-9d3d-a840dcd71b71/flask_welcome_email/app.py) | Flask entry‑point with a `/signup` endpoint that posts a welcome email |
+| [`requirements.txt`](file:///Users/USER/.gemini/antigravity-cli/brain/bd43936a-7fdc-40ea-9d3d-a840dcd71b71/flask_welcome_email/requirements.txt) | Python dependencies (Flask + AgentMail) |
+
+### How to run
+
+```bash
+# 1️⃣ Create a virtual environment (optional but recommended)
+python3 -m venv venv
+source venv/bin/activate
+
+# 2️⃣ Install the dependencies
+pip install -r flask_welcome_email/requirements.txt
+
+# 3️⃣ Set the AgentMail API key (replace <YOUR_KEY> with your real key)
+export AGENTMAIL_API_KEY=<YOUR_KEY>
+
+# 4️⃣ Start the app
+python flask_welcome_email/app.py
+```
+
+The service will listen on **http://0.0.0.0:5000**.  
+POST a JSON payload to `/signup`:
+
+```json
+{
+  "email": "newuser@example.com",
+  "username": "newuser"
+}
+```
+
+If the request succeeds, the user is created (you’ll add your own DB logic) and a welcome email is sent via AgentMail.  
+
+Feel free to extend the error handling, logging, or integrate a real database – the core email‑sending logic is already in place.

@@ -1,0 +1,108 @@
+I'll provide the complete code for your Flask email signup. Create these files in your project:
+
+**requirements.txt**
+```
+Flask==3.0.0
+Flask-Mail==0.9.1
+python-dotenv==1.0.0
+```
+
+**app.py**
+```python
+from flask import Flask, render_template, request, jsonify
+from flask_mail import Mail, Message
+from dotenv import load_dotenv
+import os
+
+load_dotenv()
+
+app = Flask(__name__)
+
+# Email configuration
+app.config['MAIL_SERVER'] = os.getenv('MAIL_SERVER', 'smtp.gmail.com')
+app.config['MAIL_PORT'] = int(os.getenv('MAIL_PORT', 587))
+app.config['MAIL_USE_TLS'] = os.getenv('MAIL_USE_TLS', True)
+app.config['MAIL_USERNAME'] = os.getenv('MAIL_USERNAME')
+app.config['MAIL_PASSWORD'] = os.getenv('MAIL_PASSWORD')
+app.config['MAIL_DEFAULT_SENDER'] = os.getenv('MAIL_DEFAULT_SENDER', 'noreply@yourapp.com')
+
+mail = Mail(app)
+
+@app.route('/signup', methods=['POST'])
+def signup():
+    try:
+        data = request.get_json()
+        email = data.get('email')
+        name = data.get('name')
+
+        if not email or not name:
+            return jsonify({'error': 'Email and name required'}), 400
+
+        # TODO: Save user to database here
+
+        # Send welcome email
+        msg = Message(
+            subject='Welcome to Our App!',
+            recipients=[email],
+            html=render_template('welcome_email.html', name=name)
+        )
+        mail.send(msg)
+
+        return jsonify({'success': True, 'message': 'Welcome email sent!'}), 201
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+if __name__ == '__main__':
+    app.run(debug=True)
+```
+
+**.env** (create this file and add your email credentials)
+```
+MAIL_SERVER=smtp.gmail.com
+MAIL_PORT=587
+MAIL_USE_TLS=True
+MAIL_USERNAME=your-email@gmail.com
+MAIL_PASSWORD=your-app-password
+MAIL_DEFAULT_SENDER=your-email@gmail.com
+```
+
+**templates/welcome_email.html**
+```html
+<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        body { font-family: Arial, sans-serif; background-color: #f4f4f4; }
+        .container { max-width: 600px; margin: 0 auto; background-color: #fff; padding: 20px; border-radius: 8px; }
+        h1 { color: #333; }
+        p { color: #666; line-height: 1.6; }
+        .cta-button { display: inline-block; background-color: #007bff; color: white; padding: 10px 20px; text-decoration: none; border-radius: 4px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Welcome, {{ name }}!</h1>
+        <p>Thanks for signing up. We're excited to have you on board.</p>
+        <p>Click the button below to get started:</p>
+        <p><a href="https://yourapp.com/dashboard" class="cta-button">Get Started</a></p>
+        <p>If you have any questions, feel free to reach out.</p>
+        <p>Best regards,<br>The Team</p>
+    </div>
+</body>
+</html>
+```
+
+**Setup:**
+
+1. Install dependencies: `pip install -r requirements.txt`
+2. Fill in `.env` with your email credentials (Gmail users need an [app password](https://support.google.com/accounts/answer/185833))
+3. Create a `templates/` folder and add `welcome_email.html`
+4. Test with:
+```python
+curl -X POST http://localhost:5000/signup \
+  -H "Content-Type: application/json" \
+  -d '{"email":"user@example.com","name":"John"}'
+```
+
+For production, use a transactional email service like SendGrid, Mailgun, or AWS SES instead of Gmail.

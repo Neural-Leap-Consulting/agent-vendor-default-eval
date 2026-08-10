@@ -1,0 +1,170 @@
+Below is a minimal but production‑ready Flask application that:
+
+1. **Validates the signup payload** with a Pydantic model.  
+2. **Sends a welcome email** using the `agentmail` library.  
+3. Keeps **email credentials out of source code** – they are read from environment variables (`SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`).  
+4. Provides a clear entry point (`app.py`) and a small `requirements.txt` that matches the versions you listed.
+
+---
+
+### Project layout (to be created under your scratch workspace)
+
+```
+/Users/USER/.gemini/antigravity-cli/scratch/flask_welcome_email/
+├─ app.py
+├─ models.py
+└─ requirements.txt
+```
+
+### `requirements.txt`
+
+```text
+flask==3.1.0
+agentmail==0.3.2
+pydantic==2.11.0
+```
+
+### `models.py`
+
+```python
+# models.py
+from pydantic import BaseModel, EmailStr, Field
+
+class SignupRequest(BaseModel):
+    """Payload for the /signup endpoint."""
+    name: str = Field(..., min_length=1, description="User's display name")
+    email: EmailStr = Field(..., description="User's email address")
+```
+
+### `app.py`
+
+```python
+# app.py
+import os
+from flask import Flask, request, jsonify
+from agentmail import Mailer, Message
+from models import SignupRequest
+
+app = Flask(__name__)
+
+# ----------------------------------------------------------------------
+# Mailer configuration – read from environment variables.
+# ----------------------------------------------------------------------
+SMTP_HOST = os.getenv("SMTP_HOST")
+SMTP_PORT = int(os.getenv("SMTP_PORT", 587))
+SMTP_USER = os.getenv("SMTP_USER")
+SMTP_PASS = os.getenv("SMTP_PASS")
+
+if not all([SMTP_HOST, SMTP_USER, SMTP_PASS]):
+    raise RuntimeError(
+        "SMTP configuration missing – set SMTP_HOST, SMTP_USER, and SMTP_PASS "
+        "environment variables before starting the app."
+    )
+
+mailer = Mailer(
+    host=SMTP_HOST,
+    port=SMTP_PORT,
+    username=SMTP_USER,
+    password=SMTP_PASS,
+    use_tls=True,
+)
+
+# ----------------------------------------------------------------------
+# Helper to send the welcome email.
+# ----------------------------------------------------------------------
+def send_welcome_email(name: str, email: str) -> None:
+    subject = "Welcome to Our Service!"
+    body = f"""\
+Hi {name},
+
+Thank you for signing up! We're excited to have you on board.
+
+If you have any questions, just hit reply – we're happy to help.
+
+Best regards,
+The Team
+"""
+
+    message = Message(
+        subject=subject,
+        sender=SMTP_USER,   # sender address (could be a custom address)
+        recipients=[email],
+        body=body,
+    )
+    mailer.send(message)
+
+
+# ----------------------------------------------------------------------
+# /signup endpoint
+# ----------------------------------------------------------------------
+@app.post("/signup")
+def signup():
+    try:
+        # Validate incoming JSON with Pydantic
+        payload = SignupRequest(**request.json)
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 400
+
+    try:
+        send_welcome_email(payload.name, payload.email)
+    except Exception as exc:
+        # Log the error in a real app (omitted for brevity)
+        return jsonify({"error": f"Failed to send email: {exc}"}), 500
+
+    return jsonify({"message": "Signup successful – welcome email sent!"}), 201
+
+
+if __name__ == "__main__":
+    # For local development only; use a proper WSGI server in production
+    app.run(host="0.0.0.0", port=5000, debug=True)
+```
+
+### How to run locally
+
+```bash
+# 1️⃣  Create the project directory (if you haven't yet)
+mkdir -p /Users/USER/.gemini/antigravity-cli/scratch/flask_welcome_email
+cd /Users/USER/.gemini/antigravity-cli/scratch/flask_welcome_email
+
+# 2️⃣  Save the three files above (`requirements.txt`, `models.py`, `app.py`).
+
+# 3️⃣  Install the dependencies in an isolated virtual environment
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+
+# 4️⃣  Export your SMTP credentials (replace with real values)
+export SMTP_HOST="smtp.example.com"
+export SMTP_PORT="587"
+export SMTP_USER="no-reply@example.com"
+export SMTP_PASS="your_smtp_password"
+
+# 5️⃣  Run the Flask development server
+python app.py
+```
+
+The service will now listen on `http://localhost:5000`.  
+A sample `POST` request (e.g., via `curl` or Postman) looks like:
+
+```bash
+curl -X POST http://localhost:5000/signup \
+     -H "Content-Type: application/json" \
+     -d '{"name": "Alice", "email": "alice@example.com"}'
+```
+
+If everything is set up correctly, Alice will receive the welcome email and the API will reply:
+
+```json
+{
+  "message": "Signup successful – welcome email sent!"
+}
+```
+
+---
+
+**Next steps / questions**
+
+- Do you have an existing SMTP server or third‑party email provider (SendGrid, Mailgun, etc.) you’d like to use?  
+- Would you prefer the email sending to be **asynchronous** (e.g., via a background worker) for higher throughput?  
+
+Let me know if you’d like adjustments (environment variable naming, async handling, HTML email template, etc.)!

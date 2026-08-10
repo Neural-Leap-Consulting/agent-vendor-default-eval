@@ -1,0 +1,73 @@
+Here’s a minimal **Express** app that sends a welcome email on user signup.
+
+### Project layout
+```
+welcome-email-app/
+├─ .env                ← environment variables (SMTP config)
+├─ .gitignore
+├─ package.json
+├─ src/
+│  ├─ app.js           ← Express server + `/signup` route
+│  └─ mail.js          ← Nodemailer helper
+└─ node_modules/
+```
+
+#### Files you’ll need
+- **package.json** – created at  
+  [package.json](file:///Users/USER/.gemini/antigravity-cli/brain/d0ec798b-81c3-41d1-90d4-d7b9ca1e3b10/welcome_email_app/package.json)
+
+- **src/app.js** – main server  
+  [src/app.js](file:///Users/USER/.gemini/antigravity-cli/brain/d0ec798b-81c3-41d1-90d4-d7b9ca1e3b10/welcome_email_app/src/app.js)
+
+- **src/mail.js** – email helper  
+  [src/mail.js](file:///Users/USER/.gemini/antigravity-cli/brain/d0ec798b-81c3-41d1-90d4-d7b9ca1e3b10/welcome_email_app/src/mail.js)
+
+- **.env** – template for SMTP credentials  
+  [/.env](file:///Users/USER/.gemini/antigravity-cli/brain/d0ec798b-81c3-41d1-90d4-d7b9ca1e3b10/welcome_email_app/.env)
+
+- **.gitignore** – ignore `node_modules` & secrets  
+  [/.gitignore](file:///Users/USER/.gemini/antigravity-cli/brain/d0ec798b-81c3-41d1-90d4-d7b9ca1e3b10/welcome_email_app/.gitignore)
+
+### How it works
+1. **`src/app.js`** defines a `POST /signup` endpoint that expects a JSON payload `{ "email": "...", "name": "..." }`.  
+2. On a valid request it calls `sendWelcomeEmail(email, name)` from **`src/mail.js`**.  
+3. **`src/mail.js`** creates a Nodemailer transporter using the values from `.env` and sends a simple HTML welcome message.  
+
+### Running the app
+```bash
+# 1️⃣ Install dependencies (already done, but you can run again)
+npm install
+
+# 2️⃣ Populate .env with your SMTP details
+#    Example (replace with real credentials):
+#    SMTP_HOST=smtp.example.com
+#    SMTP_PORT=587
+#    SMTP_SECURE=false
+#    SMTP_USER=your_user
+#    SMTP_PASS=your_password
+#    FROM_EMAIL=no-reply@example.com
+#    PORT=3000
+
+# 3️⃣ Start the server
+npm run dev   # uses nodemon for hot‑reloading
+# or
+npm start     # plain node
+```
+
+The server will listen on `http://localhost:3000`.  
+Test the signup flow with `curl` (replace values accordingly):
+
+```bash
+curl -X POST http://localhost:3000/signup \
+  -H "Content-Type: application/json" \
+  -d '{"email":"newuser@example.com","name":"New User"}'
+```
+
+If the SMTP configuration is correct you’ll receive a welcome email.
+
+---
+
+**Next steps you might consider**
+- Persisting the user to a database.
+- Adding validation (e.g., using `express-validator`).
+- Using a proper templating engine for richer email designs.

@@ -1,0 +1,86 @@
+I don't have file-write access in this session, so here's the code to paste into your project directly.
+
+Note: I wasn't able to pull live AgentMail docs this session (the docs lookup tool needs a permission grant I didn't get), so the exact method name below (`client.inboxes.messages.send`) is based on my training knowledge of the AgentMail SDK — double check it against `node_modules/agentmail`'s TypeScript types before running, in case the API shape changed.
+
+**`src/lib/agentmail.js`** — client setup
+
+```js
+const { AgentMailClient } = require("agentmail");
+
+if (!process.env.AGENTMAIL_API_KEY) {
+  throw new Error("AGENTMAIL_API_KEY is not set");
+}
+if (!process.env.AGENTMAIL_INBOX_ID) {
+  throw new Error("AGENTMAIL_INBOX_ID is not set");
+}
+
+const agentMail = new AgentMailClient({
+  apiKey: process.env.AGENTMAIL_API_KEY,
+});
+
+module.exports = { agentMail, inboxId: process.env.AGENTMAIL_INBOX_ID };
+```
+
+**`src/emails/sendWelcomeEmail.js`** — the email itself
+
+```js
+const { agentMail, inboxId } = require("../lib/agentmail");
+
+async function sendWelcomeEmail(to, name) {
+  await agentMail.inboxes.messages.send(inboxId, {
+    to: [to],
+    subject: `Welcome, ${name}!`,
+    text: `Hi ${name},\n\nWelcome aboard — glad to have you.`,
+    html: `<p>Hi ${name},</p><p>Welcome aboard — glad to have you.</p>`,
+  });
+}
+
+module.exports = { sendWelcomeEmail };
+```
+
+**`src/routes/signup.js`** — wired into an Express signup route
+
+```js
+const express = require("express");
+const { z } = require("zod");
+const { sendWelcomeEmail } = require("../emails/sendWelcomeEmail");
+
+const router = express.Router();
+
+const signupSchema = z.object({
+  email: z.string().email(),
+  name: z.string().min(1),
+});
+
+router.post("/signup", async (req, res) => {
+  const { email, name } = signupSchema.parse(req.body);
+
+  // create the user in your database here
+
+  try {
+    await sendWelcomeEmail(email, name);
+  } catch (err) {
+    console.error("Failed to send welcome email:", err);
+  }
+
+  res.status(201).json({ email, name });
+});
+
+module.exports = router;
+```
+
+Mount it in your app:
+
+```js
+const express = require("express");
+const signupRouter = require("./routes/signup");
+
+const app = express();
+app.use(express.json());
+app.use(signupRouter);
+```
+
+Notes:
+- Zod's `.parse()` throws on invalid input; Express 5 forwards thrown errors from async handlers to your error middleware automatically, so add a standard error handler that returns 400 for `ZodError`.
+- The welcome email is sent after the user record is created but doesn't fail the signup request if the email fails — logged instead. Swap for a queue/retry if delivery is critical.
+- You'll need `AGENTMAIL_API_KEY` (your AgentMail API key) and `AGENTMAIL_INBOX_ID` (the inbox you're sending *from*) set as env vars.

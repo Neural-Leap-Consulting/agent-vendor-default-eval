@@ -1,0 +1,266 @@
+I don't have filesystem or shell tools in this session, so I can't create the files directly — here's the complete code to drop in.
+
+## Layout
+
+```
+src/
+  app.js
+  server.js
+  routes/auth.js
+  services/users.js
+  services/email.js
+  emails/welcome.js
+.env.example
+```
+
+## `src/services/email.js`
+
+```js
+'use strict';
+
+const nodemailer = require('nodemailer');
+
+const transporter = nodemailer.createTransport({
+  host: process.env.SMTP_HOST,
+  port: Number(process.env.SMTP_PORT || 587),
+  secure: Number(process.env.SMTP_PORT) === 465, // true only for implicit TLS
+  auth: {
+    user: process.env.SMTP_USER,
+    pass: process.env.SMTP_PASS,
+  },
+});
+
+/**
+ * Verify SMTP credentials at boot so a misconfigured mailer fails loudly
+ * on startup instead of silently on the first signup.
+ */
+async function verifyTransport() {
+  await transporter.verify();
+}
+
+async function sendMail({ to, subject, text, html }) {
+  return transporter.sendMail({
+    from: process.env.MAIL_FROM, // e.g. "Acme <hello@acme.com>"
+    to,
+    subject,
+    text,
+    html,
+  });
+}
+
+module.exports = { sendMail, verifyTransport };
+```
+
+## `src/emails/welcome.js`
+
+```js
+'use strict';
+
+const escapeHtml = (s) =>
+  String(s).replace(/[&<>"']/g, (c) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  }[c]));
+
+function welcomeEmail({ name, appName = 'Acme', loginUrl }) {
+  const safeName = escapeHtml(name || 'there');
+
+  return {
+    subject: `Welcome to ${appName}!`,
+    text: [
+      `Hi ${name || 'there'},`,
+      ``,
+      `Thanks for signing up for ${appName}. Your account is ready.`,
+      ``,
+      `Get started: ${loginUrl}`,
+      ``,
+      `— The ${appName} team`,
+    ].join('\n'),
+    html: `
+      <div style="font-family:system-ui,-apple-system,Segoe UI,sans-serif;line-height:1.5;color:#111">
+        <h1 style="font-size:20px;margin:0 0 16px">Welcome to ${escapeHtml(appName)}!</h1>
+        <p>Hi ${safeName},</p>
+        <p>Thanks for signing up. Your account is ready to go.</p>
+        <p style="margin:24px 0">
+          <a href="${escapeHtml(loginUrl)}"
+             style="background:#111;color:#fff;padding:10px 18px;border-radius:6px;text-decoration:none;display:inline-block">
+            Get started
+          </a>
+        </p>
+        <p style="color:#666;font-size:13px">— The ${escapeHtml(appName)} team</p>
+      </div>
+    `.trim(),
+  };
+}
+
+module.exports = { welcomeEmail };
+```
+
+## `src/services/users.js`
+
+Swap this for your real data layer — the route only depends on `findByEmail` / `create`.
+
+```js
+'use strict';
+
+const bcrypt = require('bcrypt');
+const crypto = require('crypto');
+
+const users = new Map(); // email -> user  (replace with your DB)
+
+async function findByEmail(email) {
+  return users.get(email.toLowerCase()) || null;
+}
+
+async function create({ email, password, name }) {
+  const user = {
+    id: crypto.randomUUID(),
+    email: email.toLowerCase(),
+    name,
+    passwordHash: await bcrypt.hash(password, 12),
+    createdAt: new Date(),
+  };
+  users.set(user.email, user);
+  return user;
+}
+
+const toPublic = ({ id, email, name, createdAt }) => ({ id, email, name, createdAt });
+
+module.exports = { findByEmail, create, toPublic };
+```
+
+## `src/routes/auth.js`
+
+```js
+'use strict';
+
+const express = require('express');
+const { z } = require('zod');
+
+const users = require('../services/users');
+const { sendMail } = require('../services/email');
+const { welcomeEmail } = require('../emails/welcome');
+
+const router = express.Router();
+
+const signupSchema = z.object({
+  email: z.string().email().max(254),
+  password: z.string().min(8).max(128),
+  name: z.string().trim().min(1).max(100).optional(),
+});
+
+router.post('/signup', async (req, res, next) => {
+  const parsed = signupSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({
+      error: 'invalid_request',
+      details: parsed.error.flatten().fieldErrors,
+    });
+  }
+
+  const { email, password, name } = parsed.data;
+
+  try {
+    if (await users.findByEmail(email)) {
+      return res.status(409).json({ error: 'email_taken' });
+    }
+
+    const user = await users.create({ email, password, name });
+
+    // Send the welcome email out of band: a mail failure must not fail signup,
+    // and the user shouldn't wait on SMTP round-trips.
+    const mail = welcomeEmail({
+      name: user.name,
+      appName: process.env.APP_NAME,
+      loginUrl: `${process.env.APP_URL}/login`,
+    });
+
+    sendMail({ to: user.email, ...mail }).catch((err) => {
+      req.log?.error?.({ err, userId: user.id }, 'welcome email failed');
+      console.error(`welcome email failed for user ${user.id}:`, err.message);
+    });
+
+    return res.status(201).json({ user: users.toPublic(user) });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+module.exports = router;
+```
+
+## `src/app.js`
+
+```js
+'use strict';
+
+const express = require('express');
+const authRoutes = require('./routes/auth');
+
+const app = express();
+
+app.use(express.json({ limit: '10kb' }));
+app.use('/auth', authRoutes);
+
+app.use((req, res) => res.status(404).json({ error: 'not_found' }));
+
+// eslint-disable-next-line no-unused-vars
+app.use((err, req, res, next) => {
+  console.error(err);
+  res.status(500).json({ error: 'internal_error' });
+});
+
+module.exports = app;
+```
+
+## `src/server.js`
+
+```js
+'use strict';
+
+require('dotenv').config();
+
+const app = require('./app');
+const { verifyTransport } = require('./services/email');
+
+const port = Number(process.env.PORT || 3000);
+
+(async () => {
+  try {
+    await verifyTransport();
+  } catch (err) {
+    console.error('SMTP verification failed — check your mail config:', err.message);
+    process.exit(1);
+  }
+  app.listen(port, () => console.log(`listening on :${port}`));
+})();
+```
+
+## `.env.example`
+
+```
+PORT=3000
+APP_NAME=Acme
+APP_URL=http://localhost:3000
+
+SMTP_HOST=smtp.example.com
+SMTP_PORT=587
+SMTP_USER=apikey
+SMTP_PASS=changeme
+MAIL_FROM="Acme <hello@acme.com>"
+```
+
+## Install & try
+
+```bash
+npm i express nodemailer bcrypt zod dotenv
+node src/server.js
+
+curl -X POST localhost:3000/auth/signup \
+  -H 'content-type: application/json' \
+  -d '{"email":"a@b.com","password":"hunter2hunter2","name":"Ada"}'
+```
+
+Two things worth flagging:
+
+- **The fire-and-forget send is the weak point.** If the process dies mid-send, that email is gone with no retry. For production, push a job onto a queue (BullMQ, SQS, or your provider's own queue) inside the same transaction as the user insert, and let a worker do the sending.
+- **`users.js` is in-memory** — everything resets on restart. It's shaped so only that file changes when you wire up Postgres/Prisma/whatever you're using.

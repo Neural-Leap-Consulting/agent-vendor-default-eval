@@ -1,0 +1,102 @@
+I don't have file-editing tools available in this session, so here's the code to add to your project directly.
+
+## Setup
+
+```bash
+npm install nodemailer dotenv express
+```
+
+## `services/emailService.js`
+
+```javascript
+const nodemailer = require('nodemailer');
+
+const transporter = nodemailer.createTransport({
+  host: process.env.SMTP_HOST,
+  port: Number(process.env.SMTP_PORT),
+  secure: process.env.SMTP_PORT === '465',
+  auth: {
+    user: process.env.SMTP_USER,
+    pass: process.env.SMTP_PASS,
+  },
+});
+
+async function sendWelcomeEmail(to, name) {
+  await transporter.sendMail({
+    from: process.env.EMAIL_FROM,
+    to,
+    subject: 'Welcome!',
+    html: `<p>Hi ${name},</p><p>Thanks for signing up — glad to have you.</p>`,
+  });
+}
+
+module.exports = { sendWelcomeEmail };
+```
+
+## `routes/auth.js`
+
+```javascript
+const express = require('express');
+const bcrypt = require('bcrypt');
+const { sendWelcomeEmail } = require('../services/emailService');
+const User = require('../models/User'); // adjust to your actual model/db layer
+
+const router = express.Router();
+
+router.post('/signup', async (req, res) => {
+  const { email, password, name } = req.body;
+
+  if (!email || !password) {
+    return res.status(400).json({ error: 'Email and password are required' });
+  }
+
+  const existing = await User.findOne({ email });
+  if (existing) {
+    return res.status(409).json({ error: 'Email already in use' });
+  }
+
+  const passwordHash = await bcrypt.hash(password, 10);
+  const user = await User.create({ email, passwordHash, name });
+
+  try {
+    await sendWelcomeEmail(user.email, user.name);
+  } catch (err) {
+    console.error('Failed to send welcome email:', err);
+  }
+
+  res.status(201).json({ id: user.id, email: user.email });
+});
+
+module.exports = router;
+```
+
+## `.env`
+
+```
+SMTP_HOST=smtp.example.com
+SMTP_PORT=587
+SMTP_USER=your_smtp_user
+SMTP_PASS=your_smtp_pass
+EMAIL_FROM="Your App <no-reply@yourapp.com>"
+```
+
+## `app.js` wiring
+
+```javascript
+require('dotenv').config();
+const express = require('express');
+const authRoutes = require('./routes/auth');
+
+const app = express();
+app.use(express.json());
+app.use('/auth', authRoutes);
+
+module.exports = app;
+```
+
+**Notes:**
+- The welcome email send is wrapped in try/catch and doesn't fail the signup response if it errors — signup should succeed even if email delivery has a hiccup.
+- Swap the SMTP transport for a provider like SendGrid/Postmark/SES in production by changing `emailService.js`'s transporter config — the `sendWelcomeEmail` interface stays the same.
+- I didn't guess at your DB layer — replace the `User` model calls with whatever ORM/DB client (Prisma, Mongoose, raw SQL, etc.) your project actually uses.
+
+If you'd like, tell me where your Express app currently lives and I can check whether file tools become available, or you can paste in your existing project structure and I'll tailor this precisely.

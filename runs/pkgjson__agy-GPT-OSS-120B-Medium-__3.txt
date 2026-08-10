@@ -1,0 +1,1 @@
+<|channel|>commentary<|message|>{"path":"AbsolutePath","value":"/Users/USER/.gemini/antigravity-cli/brain/c8d25472-94e6-48d5-bea9-7bf933228a7b/scratch/express-welcome-email/package.json","StartLine":1,"EndLine":200,"toolAction":"Viewing file","toolSummary":"File view"}

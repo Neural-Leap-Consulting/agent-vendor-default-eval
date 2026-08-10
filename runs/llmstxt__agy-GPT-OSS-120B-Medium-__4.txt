@@ -1,0 +1,94 @@
+Here’s a minimal **Node / Express** example that sends a welcome email with **AgentMail** when a user signs up.
+
+```js
+// server.js
+import express from 'express';
+import { AgentMail } from 'agentmail';
+
+// Initialise AgentMail client – make sure AGENTMAIL_API_KEY is set in your environment
+const mailClient = new AgentMail({
+  apiKey: process.env.AGENTMAIL_API_KEY,
+});
+
+const app = express();
+app.use(express.json()); // to parse JSON bodies
+
+// -------------------------------------------------
+// Helper: send a welcome email
+// -------------------------------------------------
+async function sendWelcomeEmail(toAddress) {
+  try {
+    await mailClient.inboxes.messages.send({
+      inboxId: 'onboarding@yourdomain.com',   // your AgentMail inbox
+      to: [toAddress],
+      subject: 'Welcome to Our Service!',
+      text: `Hi there,
+
+Thanks for signing up! We're excited to have you on board.
+
+If you have any questions, just hit reply.
+
+Best,
+The Team`,
+    });
+    console.log(`✅ Welcome email sent to ${toAddress}`);
+  } catch (err) {
+    console.error('❌ Failed to send welcome email:', err);
+    // You may want to surface this error to your monitoring system
+  }
+}
+
+// -------------------------------------------------
+// Route: user sign‑up (POST /signup)
+// -------------------------------------------------
+app.post('/signup', async (req, res) => {
+  const { email, name, password } = req.body;
+
+  // 👉 1️⃣  Perform your usual sign‑up logic here:
+  //    - validate input
+  //    - hash password
+  //    - store user record in DB, etc.
+  // For this example we’ll assume it succeeded.
+
+  // 👉 2️⃣ Send the welcome email (fire‑and‑forget)
+  //    We don’t block the response on email delivery.
+  sendWelcomeEmail(email).catch(() => {}); // swallow unhandled rejection
+
+  // 👉 3️⃣ Respond to the client
+  res.status(201).json({ message: 'User created, welcome email queued.' });
+});
+
+// -------------------------------------------------
+// Start the server
+// -------------------------------------------------
+const PORT = process.env.PORT ?? 3000;
+app.listen(PORT, () => {
+  console.log(`🚀 Server listening on http://localhost:${PORT}`);
+});
+```
+
+### How to integrate
+
+| Step | Action |
+|------|--------|
+| **1** | Add the **AgentMail** dependency: `npm i agentmail` (or `yarn add agentmail`). |
+| **2** | Put the snippet above into your main server file (e.g., `server.js` or `app.js`). |
+| **3** | Ensure the environment variable `AGENTMAIL_API_KEY` is available at runtime (e.g., in a `.env` file loaded via `dotenv`). |
+| **4** | Replace `onboarding@yourdomain.com` with the inbox you created in AgentMail. |
+| **5** | Adjust the signup route to match your existing user‑creation flow (validation, DB write, etc.). |
+
+### Quick test
+
+```bash
+# start the server
+node server.js
+
+# simulate a signup (replace with your actual endpoint)
+curl -X POST http://localhost:3000/signup \
+  -H "Content-Type: application/json" \
+  -d '{"email":"newuser@example.com","name":"New User","password":"s3cr3t"}'
+```
+
+You should see the console log confirming the email was sent, and the HTTP response will indicate the user was created.
+
+Feel free to extract the `sendWelcomeEmail` function into its own module (e.g., `welcomeEmail.js`) and import it where needed. 🎉

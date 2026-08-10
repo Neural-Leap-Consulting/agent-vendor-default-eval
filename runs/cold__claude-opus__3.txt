@@ -1,0 +1,232 @@
+Permission wasn't granted for the docs lookup, so this is from knowledge — the nodemailer (`createTransport` / `sendMail`) and Express APIs used here are stable and current.
+
+Here's a working signup + welcome email setup.
+
+## `package.json`
+
+```json
+{
+  "name": "signup-service",
+  "type": "module",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js"
+  },
+  "dependencies": {
+    "bcrypt": "^5.1.1",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "nodemailer": "^6.9.14",
+    "zod": "^3.23.8"
+  }
+}
+```
+
+## `.env.example`
+
+```bash
+PORT=3000
+SMTP_HOST=smtp.example.com
+SMTP_PORT=587
+SMTP_USER=apikey
+SMTP_PASS=changeme
+MAIL_FROM="Acme <hello@acme.com>"
+APP_URL=https://app.acme.com
+```
+
+## `src/email/templates/welcome.js`
+
+```js
+const escapeHtml = (str) =>
+  String(str).replace(/[&<>"']/g, (c) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  })[c]);
+
+export function welcomeTemplate({ name, appUrl }) {
+  const safeName = escapeHtml(name);
+
+  return {
+    subject: 'Welcome to Acme 👋',
+    text: [
+      `Hi ${name},`,
+      '',
+      'Thanks for signing up for Acme. Your account is ready.',
+      '',
+      `Get started: ${appUrl}`,
+      '',
+      "If you didn't create this account, just ignore this email.",
+    ].join('\n'),
+    html: `
+      <div style="font-family:system-ui,-apple-system,sans-serif;max-width:520px;line-height:1.5">
+        <h1 style="font-size:20px;margin:0 0 16px">Welcome to Acme, ${safeName}!</h1>
+        <p>Thanks for signing up. Your account is ready to go.</p>
+        <p style="margin:24px 0">
+          <a href="${escapeHtml(appUrl)}"
+             style="background:#111;color:#fff;padding:10px 18px;border-radius:6px;text-decoration:none">
+            Get started
+          </a>
+        </p>
+        <p style="color:#666;font-size:13px">
+          If you didn't create this account, you can safely ignore this email.
+        </p>
+      </div>`,
+  };
+}
+```
+
+## `src/email/mailer.js`
+
+```js
+import nodemailer from 'nodemailer';
+import { welcomeTemplate } from './templates/welcome.js';
+
+// One pooled transport for the process — creating one per send opens a new
+// SMTP connection every time and will get you rate-limited.
+const transporter = nodemailer.createTransport({
+  host: process.env.SMTP_HOST,
+  port: Number(process.env.SMTP_PORT ?? 587),
+  secure: Number(process.env.SMTP_PORT) === 465,
+  auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
+  pool: true,
+  maxConnections: 5,
+});
+
+export async function verifyMailer() {
+  await transporter.verify();
+}
+
+export async function sendWelcomeEmail(user) {
+  const { subject, text, html } = welcomeTemplate({
+    name: user.name,
+    appUrl: process.env.APP_URL ?? 'https://app.acme.com',
+  });
+
+  return transporter.sendMail({
+    from: process.env.MAIL_FROM,
+    to: user.email,
+    subject,
+    text,
+    html,
+  });
+}
+```
+
+## `src/services/users.js`
+
+```js
+import bcrypt from 'bcrypt';
+import { randomUUID } from 'node:crypto';
+
+const SALT_ROUNDS = 12;
+
+// Swap this for your real data layer (Prisma, Knex, Mongo…).
+// The unique-email check belongs on the DB column too — this in-process
+// check races under concurrent requests.
+const usersByEmail = new Map();
+
+export class EmailTakenError extends Error {}
+
+export async function createUser({ email, name, password }) {
+  if (usersByEmail.has(email)) throw new EmailTakenError(email);
+
+  const user = {
+    id: randomUUID(),
+    email,
+    name,
+    passwordHash: await bcrypt.hash(password, SALT_ROUNDS),
+    createdAt: new Date(),
+  };
+
+  usersByEmail.set(email, user);
+  return user;
+}
+```
+
+## `src/routes/signup.js`
+
+```js
+import { Router } from 'express';
+import { z } from 'zod';
+import { createUser, EmailTakenError } from '../services/users.js';
+import { sendWelcomeEmail } from '../email/mailer.js';
+
+const router = Router();
+
+const SignupBody = z.object({
+  email: z.string().trim().toLowerCase().email().max(254),
+  name: z.string().trim().min(1).max(100),
+  password: z.string().min(8).max(200),
+});
+
+router.post('/signup', async (req, res, next) => {
+  const parsed = SignupBody.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({
+      error: 'invalid_request',
+      details: parsed.error.flatten().fieldErrors,
+    });
+  }
+
+  try {
+    const user = await createUser(parsed.data);
+
+    // Send *after* the account is committed, and never await it into the
+    // response path: a flaky SMTP host must not turn a successful signup
+    // into a 500 the client will retry (creating a duplicate-email error).
+    sendWelcomeEmail(user).catch((err) => {
+      console.error('welcome email failed for user %s:', user.id, err);
+    });
+
+    res.status(201).json({ id: user.id, email: user.email, name: user.name });
+  } catch (err) {
+    if (err instanceof EmailTakenError) {
+      return res.status(409).json({ error: 'email_taken' });
+    }
+    next(err);
+  }
+});
+
+export default router;
+```
+
+## `src/server.js`
+
+```js
+import 'dotenv/config';
+import express from 'express';
+import signupRouter from './routes/signup.js';
+import { verifyMailer } from './email/mailer.js';
+
+const app = express();
+app.use(express.json({ limit: '10kb' }));
+app.use('/api', signupRouter);
+
+app.use((err, _req, res, _next) => {
+  console.error(err);
+  res.status(500).json({ error: 'internal_error' });
+});
+
+const port = Number(process.env.PORT ?? 3000);
+
+// Fail loudly at boot if SMTP creds are wrong, rather than silently
+// dropping every welcome email in production.
+verifyMailer().catch((err) => console.error('SMTP verify failed:', err));
+
+app.listen(port, () => console.log(`listening on :${port}`));
+```
+
+Try it:
+
+```bash
+npm install && cp .env.example .env && npm run dev
+
+curl -X POST localhost:3000/api/signup \
+  -H 'content-type: application/json' \
+  -d '{"email":"jo@example.com","name":"Jo","password":"hunter2hunter2"}'
+```
+
+**Two things to know about the design:**
+
+The email send is deliberately fire-and-forget. If SMTP is down and you `await` it, the request 500s even though the account was created — the client retries and hits `email_taken`. The trade-off is that a failed send is only logged, never retried. Once this matters, move `sendWelcomeEmail` behind a job queue (BullMQ, or an outbox row your worker drains) and the route enqueues instead of sending.
+
+For local development, swap the transport for `nodemailer.createTestAccount()` with Ethereal, or point `SMTP_HOST` at Mailpit — otherwise every test signup mails a real address.

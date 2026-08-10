@@ -1,0 +1,172 @@
+Here is a complete, production-ready solution for sending a welcome email upon user signup in a Node.js Express application using **Nodemailer**.
+
+A complete demo project has been created in your scratch workspace at [`express-welcome-email`](file:///Users/USER/.gemini/antigravity-cli/scratch/express-welcome-email).
+
+---
+
+### 1. Dependencies
+
+Install `express`, `nodemailer`, and `dotenv`:
+
+```bash
+npm install express nodemailer dotenv
+```
+
+---
+
+### 2. Environment Configuration ([`.env.example`](file:///Users/USER/.gemini/antigravity-cli/scratch/express-welcome-email/.env.example))
+
+Create a `.env` file to securely store SMTP server credentials:
+
+```env
+PORT=3000
+
+# SMTP Provider Details (e.g. Resend, SendGrid, Mailgun, AWS SES, Ethereal)
+SMTP_HOST=smtp.ethereal.email
+SMTP_PORT=587
+SMTP_USER=your_smtp_username
+SMTP_PASS=your_smtp_password
+EMAIL_FROM="MyApp Support" <no-reply@myapp.com>
+```
+
+---
+
+### 3. Email Service Module ([`services/emailService.js`](file:///Users/USER/.gemini/antigravity-cli/scratch/express-welcome-email/services/emailService.js))
+
+This module creates the Nodemailer transporter and builds a responsive HTML welcome email template.
+
+```javascript
+const nodemailer = require('nodemailer');
+
+// 1. Configure the SMTP transporter
+const transporter = nodemailer.createTransport({
+  host: process.env.SMTP_HOST || 'smtp.ethereal.email',
+  port: parseInt(process.env.SMTP_PORT || '587', 10),
+  secure: process.env.SMTP_PORT === '465',
+  auth: {
+    user: process.env.SMTP_USER,
+    pass: process.env.SMTP_PASS,
+  },
+});
+
+// 2. Modern HTML welcome email template
+function getWelcomeEmailHtml(name) {
+  return `
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+      <meta charset="UTF-8" />
+      <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+      <title>Welcome to MyApp</title>
+      <style>
+        body { font-family: Arial, sans-serif; background-color: #f4f6f8; margin: 0; padding: 0; }
+        .container { max-width: 600px; margin: 40px auto; background: #ffffff; border-radius: 8px; overflow: hidden; padding: 30px; box-shadow: 0 4px 10px rgba(0,0,0,0.05); }
+        .header { text-align: center; color: #4F46E5; }
+        .content { color: #334155; line-height: 1.6; }
+        .btn { display: inline-block; margin-top: 20px; padding: 12px 24px; background-color: #4F46E5; color: #ffffff !important; text-decoration: none; border-radius: 6px; font-weight: bold; }
+        .footer { margin-top: 30px; font-size: 12px; color: #94a3b8; text-align: center; }
+      </style>
+    </head>
+    <body>
+      <div class="container">
+        <h1 class="header">Welcome to MyApp! 🎉</h1>
+        <div class="content">
+          <p>Hi <strong>${name}</strong>,</p>
+          <p>Thank you for creating an account. We are excited to have you on board!</p>
+          <p style="text-align: center;">
+            <a href="https://myapp.com/dashboard" class="btn">Get Started</a>
+          </p>
+        </div>
+        <div class="footer">
+          <p>&copy; ${new Date().getFullYear()} MyApp Inc. All rights reserved.</p>
+        </div>
+      </div>
+    </body>
+    </html>
+  `;
+}
+
+// 3. Send welcome email function
+async function sendWelcomeEmail(user) {
+  try {
+    const mailOptions = {
+      from: process.env.EMAIL_FROM || '"MyApp" <no-reply@myapp.com>',
+      to: user.email,
+      subject: 'Welcome to MyApp! 🎉',
+      text: `Hi ${user.name},\n\nWelcome to MyApp! We're thrilled to have you onboard.`,
+      html: getWelcomeEmailHtml(user.name),
+    };
+
+    const info = await transporter.sendMail(mailOptions);
+    console.log(`[Email Sent] ID: ${info.messageId} to ${user.email}`);
+    
+    return info;
+  } catch (error) {
+    console.error(`[Email Error] Failed to send email to ${user.email}:`, error);
+  }
+}
+
+module.exports = { sendWelcomeEmail };
+```
+
+---
+
+### 4. Express Server & Signup Endpoint ([`server.js`](file:///Users/USER/.gemini/antigravity-cli/scratch/express-welcome-email/server.js))
+
+The signup route saves the user and triggers `sendWelcomeEmail` non-blockingly so that email network latency does not slow down the signup HTTP response.
+
+```javascript
+require('dotenv').config();
+const express = require('express');
+const { sendWelcomeEmail } = require('./services/emailService');
+
+const app = express();
+app.use(express.json());
+
+// Simulated DB
+const usersDB = [];
+
+app.post('/api/signup', async (req, res) => {
+  try {
+    const { name, email, password } = req.body;
+
+    if (!name || !email || !password) {
+      return res.status(400).json({ error: 'Name, email, and password are required.' });
+    }
+
+    const existingUser = usersDB.find((u) => u.email === email);
+    if (existingUser) {
+      return res.status(409).json({ error: 'User already exists.' });
+    }
+
+    // Hash password with bcrypt here in real apps
+    const newUser = { id: Date.now().toString(), name, email };
+    usersDB.push(newUser);
+
+    // Send email non-blockingly in the background
+    sendWelcomeEmail(newUser).catch((err) => {
+      console.error('Failed to send background email:', err);
+    });
+
+    // Return immediate HTTP 201 response
+    return res.status(201).json({
+      message: 'User registered successfully!',
+      user: { id: newUser.id, name: newUser.name, email: newUser.email },
+    });
+  } catch (err) {
+    console.error('Signup error:', err);
+    return res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log(`Server running on http://localhost:${PORT}`));
+```
+
+---
+
+### 💡 Key Recommendations for Production
+
+1. **Background Job Queues**: In production high-scale systems, use a task queue like **BullMQ** or **RabbitMQ** with Redis to handle email sending. This guarantees retries if your email provider experiences rate limits or outages.
+2. **Transactional Email APIs**: Instead of raw SMTP, services like **Resend**, **SendGrid**, or **Postmark** offer lightweight HTTP SDKs (e.g. `resend.emails.send()`) which reduce overhead.
+3. **Password Security**: Ensure password hashing using `bcryptjs` or `argon2` before storing user records in your database.

@@ -1,0 +1,155 @@
+I'll provide you with the Flask code for user signup with welcome email functionality:
+
+**app.py**
+```python
+from flask import Flask, request, jsonify
+from flask_sqlalchemy import SQLAlchemy
+from flask_mail import Mail, Message
+from werkzeug.security import generate_password_hash
+from datetime import datetime
+
+app = Flask(__name__)
+
+# Configuration
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///users.db'
+app.config['MAIL_SERVER'] = 'smtp.gmail.com'
+app.config['MAIL_PORT'] = 587
+app.config['MAIL_USE_TLS'] = True
+app.config['MAIL_USERNAME'] = 'your-email@gmail.com'
+app.config['MAIL_PASSWORD'] = 'your-app-password'  # Use app-specific password for Gmail
+app.config['MAIL_DEFAULT_SENDER'] = 'your-email@gmail.com'
+
+db = SQLAlchemy(app)
+mail = Mail(app)
+
+
+class User(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    email = db.Column(db.String(120), unique=True, nullable=False)
+    username = db.Column(db.String(80), unique=True, nullable=False)
+    password = db.Column(db.String(255), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def __repr__(self):
+        return f'<User {self.username}>'
+
+
+def send_welcome_email(user):
+    """Send welcome email to new user"""
+    subject = f'Welcome to Our App, {user.username}!'
+    
+    html_body = f'''
+    <html>
+        <body>
+            <h2>Welcome, {user.username}!</h2>
+            <p>Thank you for signing up. We're excited to have you on board!</p>
+            <p>Your account has been created with the email: <strong>{user.email}</strong></p>
+            <p>You can now log in and start using our app.</p>
+            <br>
+            <p>Best regards,<br>The Team</p>
+        </body>
+    </html>
+    '''
+    
+    text_body = f'''
+    Welcome, {user.username}!
+    
+    Thank you for signing up. We're excited to have you on board!
+    Your account has been created with the email: {user.email}
+    You can now log in and start using our app.
+    
+    Best regards,
+    The Team
+    '''
+    
+    msg = Message(
+        subject=subject,
+        recipients=[user.email],
+        html=html_body,
+        body=text_body
+    )
+    mail.send(msg)
+
+
+@app.route('/signup', methods=['POST'])
+def signup():
+    """Handle user signup and send welcome email"""
+    data = request.get_json()
+    
+    # Validate input
+    if not all(k in data for k in ('email', 'username', 'password')):
+        return jsonify({'error': 'Missing required fields'}), 400
+    
+    email = data['email']
+    username = data['username']
+    password = data['password']
+    
+    # Check if user already exists
+    if User.query.filter_by(email=email).first():
+        return jsonify({'error': 'Email already registered'}), 409
+    
+    if User.query.filter_by(username=username).first():
+        return jsonify({'error': 'Username already taken'}), 409
+    
+    try:
+        # Create new user
+        user = User(
+            email=email,
+            username=username,
+            password=generate_password_hash(password)
+        )
+        db.session.add(user)
+        db.session.commit()
+        
+        # Send welcome email
+        send_welcome_email(user)
+        
+        return jsonify({
+            'message': 'Signup successful! Welcome email sent.',
+            'user_id': user.id
+        }), 201
+    
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': f'Signup failed: {str(e)}'}), 500
+
+
+if __name__ == '__main__':
+    with app.app_context():
+        db.create_all()
+    app.run(debug=True)
+```
+
+**requirements.txt**
+```
+Flask==3.0.0
+Flask-SQLAlchemy==3.1.1
+Flask-Mail==0.9.1
+Werkzeug==3.0.1
+```
+
+**Setup steps:**
+
+1. **Install dependencies:**
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+2. **Configure email (Gmail example):**
+   - Enable 2-factor authentication on your Google account
+   - Generate an [app-specific password](https://myaccount.google.com/apppasswords)
+   - Replace `your-email@gmail.com` and `your-app-password` in the config
+
+3. **Run the app:**
+   ```bash
+   python app.py
+   ```
+
+4. **Test signup with cURL:**
+   ```bash
+   curl -X POST http://localhost:5000/signup \
+     -H "Content-Type: application/json" \
+     -d '{"email":"user@example.com","username":"john","password":"pass123"}'
+   ```
+
+The code handles user creation, password hashing, duplicate email/username checks, and sends an HTML + plain text welcome email. For production, use environment variables for email credentials instead of hardcoding them.

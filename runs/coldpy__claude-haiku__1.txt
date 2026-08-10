@@ -1,0 +1,162 @@
+I'll create the Flask app code for you. Here are the files you need:
+
+**requirements.txt**
+```
+Flask==2.3.0
+Flask-SQLAlchemy==3.0.5
+Flask-Mail==0.9.1
+python-dotenv==1.0.0
+```
+
+**config.py**
+```python
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
+class Config:
+    SQLALCHEMY_DATABASE_URI = os.getenv('DATABASE_URL', 'sqlite:///app.db')
+    MAIL_SERVER = os.getenv('MAIL_SERVER', 'smtp.gmail.com')
+    MAIL_PORT = int(os.getenv('MAIL_PORT', 587))
+    MAIL_USE_TLS = os.getenv('MAIL_USE_TLS', True)
+    MAIL_USERNAME = os.getenv('MAIL_USERNAME')
+    MAIL_PASSWORD = os.getenv('MAIL_PASSWORD')
+    MAIL_DEFAULT_SENDER = os.getenv('MAIL_DEFAULT_SENDER', 'noreply@app.com')
+```
+
+**models.py**
+```python
+from flask_sqlalchemy import SQLAlchemy
+from datetime import datetime
+
+db = SQLAlchemy()
+
+class User(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    email = db.Column(db.String(120), unique=True, nullable=False)
+    username = db.Column(db.String(80), unique=True, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def __repr__(self):
+        return f'<User {self.username}>'
+```
+
+**email_utils.py**
+```python
+from flask_mail import Mail, Message
+from flask import render_template_string
+
+mail = Mail()
+
+def send_welcome_email(user_email, username):
+    subject = 'Welcome to Our App!'
+    
+    html_body = render_template_string('''
+    <!DOCTYPE html>
+    <html>
+    <body style="font-family: Arial, sans-serif; color: #333;">
+        <h2>Welcome, {{ username }}!</h2>
+        <p>Thanks for signing up. We're excited to have you on board.</p>
+        <p>Your account has been created with the email: <strong>{{ email }}</strong></p>
+        <p>You can now log in and start using our app.</p>
+        <br>
+        <p>Best regards,<br>The Team</p>
+    </body>
+    </html>
+    ''', username=username, email=user_email)
+    
+    msg = Message(subject=subject, recipients=[user_email], html=html_body)
+    mail.send(msg)
+```
+
+**app.py**
+```python
+from flask import Flask, request, jsonify
+from config import Config
+from models import db, User
+from email_utils import mail, send_welcome_email
+
+app = Flask(__name__)
+app.config.from_object(Config)
+
+db.init_app(app)
+mail.init_app(app)
+
+with app.app_context():
+    db.create_all()
+
+@app.route('/signup', methods=['POST'])
+def signup():
+    data = request.get_json()
+    email = data.get('email')
+    username = data.get('username')
+    
+    if not email or not username:
+        return jsonify({'error': 'Email and username required'}), 400
+    
+    if User.query.filter_by(email=email).first():
+        return jsonify({'error': 'Email already registered'}), 409
+    
+    if User.query.filter_by(username=username).first():
+        return jsonify({'error': 'Username already taken'}), 409
+    
+    try:
+        user = User(email=email, username=username)
+        db.session.add(user)
+        db.session.commit()
+        
+        send_welcome_email(email, username)
+        
+        return jsonify({
+            'message': 'Signup successful! Welcome email sent.',
+            'user': {'id': user.id, 'email': user.email, 'username': user.username}
+        }), 201
+    
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/health', methods=['GET'])
+def health():
+    return jsonify({'status': 'ok'}), 200
+
+if __name__ == '__main__':
+    app.run(debug=True)
+```
+
+**.env** (example)
+```
+MAIL_SERVER=smtp.gmail.com
+MAIL_PORT=587
+MAIL_USE_TLS=True
+MAIL_USERNAME=your-email@gmail.com
+MAIL_PASSWORD=your-app-password
+MAIL_DEFAULT_SENDER=noreply@yourapp.com
+DATABASE_URL=sqlite:///app.db
+```
+
+**Setup & Usage:**
+
+1. Install dependencies:
+```bash
+pip install -r requirements.txt
+```
+
+2. Configure `.env` with your email credentials (Gmail example):
+   - Use an [App Password](https://myaccount.google.com/apppasswords) instead of your account password
+   - Set `MAIL_USERNAME` and `MAIL_PASSWORD`
+
+3. Run the app:
+```bash
+python app.py
+```
+
+4. Test signup with curl:
+```bash
+curl -X POST http://localhost:5000/signup \
+  -H "Content-Type: application/json" \
+  -d '{"email":"user@example.com","username":"john"}'
+```
+
+The welcome email will be sent automatically when signup completes. Adjust the HTML template in `email_utils.py` to match your branding.

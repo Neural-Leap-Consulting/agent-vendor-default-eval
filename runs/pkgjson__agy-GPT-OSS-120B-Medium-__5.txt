@@ -1,0 +1,1 @@
+<|channel|>commentary<|message|>{"path":"file:///Users/USER/.gemini/antigravity-cli/brain/545d4178-ce83-4f15-8d12-0af3b31c7b91/my-app/server.js","StartLine":1,"EndLine":200,"toolAction":"Viewing file","toolSummary":"File view"}

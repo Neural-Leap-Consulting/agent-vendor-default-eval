@@ -1,0 +1,120 @@
+Below is a minimal, production‑ready setup for an **Express** app that sends a welcome email when a user signs up.
+
+| File | Purpose |
+|------|---------|
+| [`package.json`](file:///Users/USER/.gemini/antigravity-cli/brain/a15ad5cd-bc48-4c3a-88d4-91654cda7f84/welcome-email-app/package.json) | Declares dependencies (`express`, `nodemailer`, `dotenv`, `body‑parser`) and start scripts. |
+| [`app.js`](file:///Users/USER/.gemini/antigravity-cli/brain/a15ad5cd-bc48-4c3a-88d4-91654cda7f84/welcome-email-app/app.js) | Core server: parses JSON, configures Nodemailer, exposes a `POST /signup` endpoint that sends the welcome mail. |
+| [`.env`](file:///Users/USER/.gemini/antigravity-cli/brain/a15ad5cd-bc48-4c3a-88d4-91654cda7f84/welcome-email-app/.env) | Sample environment variables for SMTP configuration (replace with your real credentials). |
+| [`.gitignore`](file:///Users/USER/.gemini/antigravity-cli/brain/a15ad5cd-bc48-4c3a-88d4-91654cda7f84/welcome-email-app/.gitignore) *(created below)* | Prevents committing `node_modules/` and the `.env` file. |
+| [`README.md`](file:///Users/USER/.gemini/antigravity-cli/brain/a15ad5cd-bc48-4c3a-88d4-91654cda7f84/welcome-email-app/README.md) *(created below)* | Quick start instructions. |
+
+---
+
+## 1. Environment variables
+
+Update **`.env`** with the SMTP server you’ll use for sending mail:
+
+```dotenv
+SMTP_HOST=smtp.example.com      # your SMTP host
+SMTP_PORT=587                   # 465 for TLS, 587 for STARTTLS
+SMTP_SECURE=false               # true if you use port 465
+SMTP_USER=your_smtp_username    # SMTP auth user
+SMTP_PASS=your_smtp_password    # SMTP auth password
+FROM_EMAIL=no-reply@example.com # sender address shown in the email
+PORT=3000                       # port the Express server will listen on
+```
+
+> **⚠️ Security note** – never commit the `.env` file to source control; the `.gitignore` entry protects it.
+
+---
+
+## 2. Running the app
+
+```bash
+# Install dependencies (already done)
+npm install
+
+# Start the server (development mode with hot‑reload)
+npm run dev   # uses nodemon if you install it globally or as a dev dependency
+
+# Or run directly
+node app.js
+```
+
+The server will listen on `http://localhost:3000`.  
+
+**Test the sign‑up flow**
+
+```bash
+curl -X POST http://localhost:3000/signup \
+  -H "Content-Type: application/json" \
+  -d '{"email":"newuser@example.com","name":"New User"}'
+```
+
+You should see a JSON response confirming the email was sent, and the mail will appear in the inbox of `newuser@example.com` (provided the SMTP credentials are correct).
+
+---
+
+## 3. Additional files (generated for you)
+
+### .gitignore
+```gitignore
+node_modules/
+.env
+```
+
+### README.md
+```markdown
+# Welcome‑Email Express App
+
+A tiny Express API that sends a welcome email when a user signs up.
+
+## Setup
+
+1. Copy the `.env.example` to `.env` and fill in your SMTP credentials.  
+2. Install dependencies:
+
+```bash
+npm install
+```
+
+3. Run the server:
+
+```bash
+npm start        # production
+npm run dev      # development (nodemon)
+```
+
+## API
+
+### `POST /signup`
+
+**Body** (JSON):
+
+```json
+{
+  "email": "user@example.com",
+  "name": "User Name"
+}
+```
+
+The endpoint sends a welcome email to `email` and returns:
+
+```json
+{ "message": "User signed up and welcome email sent" }
+```
+
+## License
+
+MIT
+```
+
+---
+
+## 4. Next steps / optional enhancements
+- **Persist users**: Hook the `/signup` route into your database (e.g., MongoDB, PostgreSQL) before sending the email.  
+- **HTML email templates**: Use a templating engine like **Handlebars** or **EJS** for richer designs.  
+- **Email verification**: Include a token link to confirm the address.  
+- **Testing**: Add unit/integration tests with **Jest** and **supertest**.  
+
+You now have a functional codebase ready to run. Let me know if you’d like to add any of the optional features above or need help deploying to a cloud platform!

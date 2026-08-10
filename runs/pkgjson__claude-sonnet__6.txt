@@ -1,0 +1,60 @@
+No file-writing tool is available in this session, so here's the code inline — copy it into your project.
+
+**`lib/agentmail.js`**
+```js
+const { AgentMailClient } = require("agentmail");
+
+const client = new AgentMailClient({ apiKey: process.env.AGENTMAIL_API_KEY });
+
+async function sendWelcomeEmail({ to, name }) {
+  await client.inboxes.messages.send(process.env.AGENTMAIL_INBOX_ID, {
+    to,
+    subject: "Welcome!",
+    text: `Hi ${name},\n\nWelcome aboard — we're glad you're here.\n\nThe Team`,
+  });
+}
+
+module.exports = { sendWelcomeEmail };
+```
+
+**`server.js`**
+```js
+const express = require("express");
+const { z } = require("zod");
+const { sendWelcomeEmail } = require("./lib/agentmail");
+
+const app = express();
+app.use(express.json());
+
+const signupSchema = z.object({
+  name: z.string().min(1),
+  email: z.email(),
+});
+
+app.post("/api/signup", async (req, res) => {
+  const parsed = signupSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.flatten() });
+  }
+
+  const { name, email } = parsed.data;
+
+  // ... create the user in your database here ...
+
+  try {
+    await sendWelcomeEmail({ to: email, name });
+  } catch (err) {
+    console.error("Failed to send welcome email:", err);
+  }
+
+  res.status(201).json({ name, email });
+});
+
+app.listen(3000, () => console.log("Listening on port 3000"));
+```
+
+Notes:
+- Requires `AGENTMAIL_API_KEY` and `AGENTMAIL_INBOX_ID` (the sending inbox you've provisioned in AgentMail) as env vars.
+- `z.email()` is the Zod v4 syntax, matching the `zod: ^4.1.5` in your `package.json`.
+- The email send is wrapped in try/catch so a transient email failure doesn't fail the signup itself — adjust if you'd rather it be a hard failure.
+- I couldn't verify `inboxes.messages.send(inboxId, {...})` against live AgentMail docs this session (context7 needed a permission grant this session didn't have) — check their SDK's type definitions or README to confirm the exact method/params before shipping.

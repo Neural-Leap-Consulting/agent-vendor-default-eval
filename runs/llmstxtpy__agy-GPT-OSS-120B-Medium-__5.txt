@@ -1,0 +1,87 @@
+Below is a **self‑contained Flask example** that shows how to send a welcome e‑mail with **AgentMail** when a new user signs up.  
+
+```python
+# app.py
+import os
+from flask import Flask, request, jsonify
+from agentmail import AgentMail
+
+app = Flask(__name__)
+
+# Initialise the AgentMail client once at startup
+client = AgentMail(api_key=os.getenv("AGENTMAIL_API_KEY"))
+
+
+def send_welcome_email(to_address: str) -> None:
+    """Send a simple welcome message through AgentMail."""
+    client.inboxes.messages.send(
+        inbox_id="onboarding@yourdomain.com",   # your configured inbox
+        to=[to_address],
+        subject="Welcome to Our Service",
+        text="Thanks for signing up! We're excited to have you on board.",
+    )
+
+
+@app.route("/signup", methods=["POST"])
+def signup():
+    """
+    Expected JSON payload:
+    {
+        "email": "user@example.com",
+        "name": "Jane Doe"
+    }
+    """
+    data = request.get_json(silent=True) or {}
+    email = data.get("email")
+    name = data.get("name", "")
+
+    if not email:
+        return jsonify({"error": "Missing email"}), 400
+
+    # ---- Here you would normally create the user record in your DB ----
+    # e.g. db.create_user(email=email, name=name)
+
+    # Send the welcome e‑mail
+    try:
+        send_welcome_email(email)
+    except Exception as exc:
+        # Email failures shouldn't block the signup flow; log and continue
+        app.logger.error(f"Failed to send welcome email: {exc}")
+
+    return jsonify({"message": f"User {name} created and welcome e‑mail sent"}), 201
+
+
+if __name__ == "__main__":
+    # Run locally for development; in production use a proper WSGI server.
+    app.run(host="0.0.0.0", port=5000, debug=True)
+```
+
+### How it works
+1. **AgentMail client** – instantiated once with the API key taken from `AGENTMAIL_API_KEY` in the environment.  
+2. `send_welcome_email()` – a tiny helper that calls `client.inboxes.messages.send` using the inbox you created in AgentMail (`onboarding@yourdomain.com`).  
+3. `/signup` route – receives a JSON payload with the new user’s e‑mail (and optionally a name), creates the user (placeholder comment), then fires the welcome mail. Errors while sending are logged but don’t abort the signup.
+
+### Getting it running
+```bash
+# 1️⃣ Install dependencies
+pip install flask agentmail
+
+# 2️⃣ Set the API key (replace with your real key)
+export AGENTMAIL_API_KEY=your_api_key_here
+
+# 3️⃣ Start the app
+python app.py
+```
+
+Now a `POST` to `http://localhost:5000/signup` with a JSON body like:
+
+```json
+{
+  "email": "newuser@example.com",
+  "name": "New User"
+}
+```
+
+will create the (placeholder) user and send the welcome message via AgentMail.  
+
+Feel free to adapt the user‑creation logic, add validation, or customize the e‑mail content as needed

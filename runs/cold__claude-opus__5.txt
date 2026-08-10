@@ -1,0 +1,154 @@
+I don't have file-write tools in this session, so here's the code to drop in. Four files.
+
+**`services/mailer.js`**
+
+```js
+const nodemailer = require('nodemailer');
+
+const transporter = nodemailer.createTransport({
+  host: process.env.SMTP_HOST,
+  port: Number(process.env.SMTP_PORT || 587),
+  secure: process.env.SMTP_PORT === '465',
+  auth: {
+    user: process.env.SMTP_USER,
+    pass: process.env.SMTP_PASS,
+  },
+});
+
+const FROM = process.env.MAIL_FROM || 'Acme <hello@acme.com>';
+const APP_URL = process.env.APP_URL || 'http://localhost:3000';
+
+function welcomeTemplate({ name }) {
+  const greeting = name ? `Hi ${name},` : 'Hi there,';
+  return {
+    subject: 'Welcome to Acme',
+    text: `${greeting}
+
+Thanks for signing up. Your account is ready.
+
+Get started: ${APP_URL}
+
+— The Acme team`,
+    html: `<p>${greeting}</p>
+<p>Thanks for signing up. Your account is ready.</p>
+<p><a href="${APP_URL}">Get started</a></p>
+<p>— The Acme team</p>`,
+  };
+}
+
+async function sendWelcomeEmail(user) {
+  const { subject, text, html } = welcomeTemplate(user);
+  return transporter.sendMail({ from: FROM, to: user.email, subject, text, html });
+}
+
+module.exports = { transporter, sendWelcomeEmail };
+```
+
+**`models/users.js`** — swap this for your real database layer; the route only needs `findByEmail` and `create`.
+
+```js
+const crypto = require('crypto');
+
+const rows = new Map(); // email -> user. Replace with your DB.
+
+async function findByEmail(email) {
+  return rows.get(email.toLowerCase()) || null;
+}
+
+async function create({ email, name, passwordHash }) {
+  const user = {
+    id: crypto.randomUUID(),
+    email: email.toLowerCase(),
+    name,
+    passwordHash,
+    createdAt: new Date(),
+  };
+  rows.set(user.email, user);
+  return user;
+}
+
+module.exports = { findByEmail, create };
+```
+
+**`routes/signup.js`**
+
+```js
+const express = require('express');
+const bcrypt = require('bcrypt');
+const users = require('../models/users');
+const { sendWelcomeEmail } = require('../services/mailer');
+
+const router = express.Router();
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+router.post('/signup', async (req, res, next) => {
+  try {
+    const { email, password, name } = req.body || {};
+
+    if (!email || !EMAIL_RE.test(email)) {
+      return res.status(400).json({ error: 'A valid email is required.' });
+    }
+    if (!password || password.length < 8) {
+      return res.status(400).json({ error: 'Password must be at least 8 characters.' });
+    }
+
+    if (await users.findByEmail(email)) {
+      return res.status(409).json({ error: 'That email is already registered.' });
+    }
+
+    const passwordHash = await bcrypt.hash(password, 12);
+    const user = await users.create({ email, name, passwordHash });
+
+    // Send after the response: a mail outage must not fail a valid signup.
+    res.status(201).json({ id: user.id, email: user.email, name: user.name });
+
+    sendWelcomeEmail(user).catch((err) => {
+      console.error(`welcome email failed for ${user.id}:`, err);
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+module.exports = router;
+```
+
+**`app.js`**
+
+```js
+const express = require('express');
+const signupRouter = require('./routes/signup');
+
+const app = express();
+app.use(express.json());
+app.use('/api', signupRouter);
+
+app.use((err, req, res, next) => {
+  console.error(err);
+  res.status(500).json({ error: 'Something went wrong.' });
+});
+
+app.listen(process.env.PORT || 3000, () => {
+  console.log(`listening on ${process.env.PORT || 3000}`);
+});
+```
+
+Install and configure:
+
+```bash
+npm i express nodemailer bcrypt
+```
+
+```
+SMTP_HOST=smtp.postmarkapp.com
+SMTP_PORT=587
+SMTP_USER=...
+SMTP_PASS=...
+MAIL_FROM="Acme <hello@acme.com>"
+APP_URL=https://app.acme.com
+```
+
+Two notes on the design:
+
+- **The email is sent after `res.json()`, not awaited before it.** If your SMTP provider is down or slow, the user still gets their account and a fast response; the failure lands in logs instead of a 500. The tradeoff is that a failed send is silently lost — for production, replace the fire-and-forget call with an enqueue (BullMQ, SQS, pg-boss) so sends get retried. The `sendWelcomeEmail` signature doesn't change when you do.
+- **`users.js` is a stand-in.** I kept it in-memory since there's no database in this project yet — data vanishes on restart. Point `findByEmail`/`create` at your real store and nothing else needs to change. Also note the check-then-insert has a race under concurrency; a unique index on `email` plus catching the duplicate-key error is the durable fix once you have a real DB.

@@ -1,0 +1,1 @@
+<|channel|>commentary<|message|>{"toolAction":"Clarifying email config","toolSummary":"Email configuration query","questions":[{"question":"Provide the email sending configuration for AgentMail.","options":["(Recommended) Use placeholder values (you can replace later)","I will provide real API key and from address"],"is_multi_select":false}]}

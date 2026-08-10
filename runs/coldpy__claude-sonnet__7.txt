@@ -1,0 +1,83 @@
+Since I don't have file-editing tools available in this session, I'll give you the code directly to drop into your project.
+
+## Setup
+
+```bash
+pip install Flask Flask-Mail
+```
+
+## `config.py`
+
+```python
+import os
+
+class Config:
+    SECRET_KEY = os.environ.get("SECRET_KEY", "dev")
+
+    MAIL_SERVER = os.environ.get("MAIL_SERVER", "smtp.gmail.com")
+    MAIL_PORT = int(os.environ.get("MAIL_PORT", 587))
+    MAIL_USE_TLS = True
+    MAIL_USERNAME = os.environ.get("MAIL_USERNAME")
+    MAIL_PASSWORD = os.environ.get("MAIL_PASSWORD")
+    MAIL_DEFAULT_SENDER = os.environ.get("MAIL_DEFAULT_SENDER", MAIL_USERNAME)
+```
+
+Keep credentials out of source control — set `MAIL_USERNAME` / `MAIL_PASSWORD` (an app password, not your real password) as environment variables.
+
+## `app.py`
+
+```python
+from flask import Flask, request, jsonify
+from flask_mail import Mail, Message
+from threading import Thread
+from config import Config
+
+app = Flask(__name__)
+app.config.from_object(Config)
+mail = Mail(app)
+
+
+def send_async_email(app, msg):
+    with app.app_context():
+        mail.send(msg)
+
+
+def send_welcome_email(to_address, username):
+    msg = Message(
+        subject="Welcome!",
+        recipients=[to_address],
+        body=f"Hi {username},\n\nThanks for signing up — we're glad to have you.",
+        html=f"<p>Hi {username},</p><p>Thanks for signing up — we're glad to have you.</p>",
+    )
+    # send in a background thread so signup doesn't block on SMTP
+    Thread(target=send_async_email, args=(app, msg)).start()
+
+
+@app.route("/signup", methods=["POST"])
+def signup():
+    data = request.get_json(silent=True) or {}
+    email = data.get("email")
+    username = data.get("username")
+
+    if not email or not username:
+        return jsonify({"error": "email and username are required"}), 400
+
+    # TODO: create the user record in your database here
+
+    send_welcome_email(email, username)
+
+    return jsonify({"message": "signup successful"}), 201
+
+
+if __name__ == "__main__":
+    app.run(debug=True)
+```
+
+## Notes
+
+- **Threading is a simple fix, not a robust one** — for production, use a task queue (Celery, RQ, or Flask's built-in `app.teardown_appcontext` isn't relevant here) so a failed send retries instead of silently vanishing when the process restarts.
+- **Gmail**: needs an [App Password](https://myaccount.google.com/apppasswords), not your account password, since 2FA blocks plain SMTP auth.
+- **Transactional email providers** (SendGrid, Mailgun, Postmark, SES) are usually a better fit than raw SMTP for deliverability — swap `Flask-Mail`'s SMTP config for their API if you outgrow this.
+- Validate `email` format before sending in a real app (this example skips it for brevity).
+
+Want me to add email format validation, wire this to a real database/user model, or swap in Celery for the async send?

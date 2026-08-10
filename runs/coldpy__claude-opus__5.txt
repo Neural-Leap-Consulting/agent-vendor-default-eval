@@ -1,0 +1,289 @@
+No filesystem or shell tools are available in this session, so I can't create the files directly — here's the complete code to drop into your project.
+
+## `requirements.txt`
+
+```
+Flask>=3.0
+Flask-SQLAlchemy>=3.1
+email-validator>=2.1
+python-dotenv>=1.0
+```
+
+## `config.py`
+
+```python
+import os
+
+
+class Config:
+    SECRET_KEY = os.environ["SECRET_KEY"]
+    SQLALCHEMY_DATABASE_URI = os.environ.get("DATABASE_URL", "sqlite:///app.db")
+    SQLALCHEMY_TRACK_MODIFICATIONS = False
+
+    # SMTP
+    MAIL_HOST = os.environ.get("MAIL_HOST", "localhost")
+    MAIL_PORT = int(os.environ.get("MAIL_PORT", 587))
+    MAIL_USERNAME = os.environ.get("MAIL_USERNAME")
+    MAIL_PASSWORD = os.environ.get("MAIL_PASSWORD")
+    MAIL_USE_TLS = os.environ.get("MAIL_USE_TLS", "true").lower() == "true"
+    MAIL_FROM = os.environ.get("MAIL_FROM", "no-reply@example.com")
+    MAIL_FROM_NAME = os.environ.get("MAIL_FROM_NAME", "Example App")
+    MAIL_TIMEOUT = int(os.environ.get("MAIL_TIMEOUT", 10))
+
+    APP_NAME = os.environ.get("APP_NAME", "Example App")
+    APP_URL = os.environ.get("APP_URL", "http://localhost:5000")
+
+    # Set true in dev to print emails to the log instead of sending them.
+    MAIL_SUPPRESS_SEND = os.environ.get("MAIL_SUPPRESS_SEND", "false").lower() == "true"
+```
+
+## `models.py`
+
+```python
+from datetime import datetime, timezone
+
+from flask_sqlalchemy import SQLAlchemy
+from werkzeug.security import check_password_hash, generate_password_hash
+
+db = SQLAlchemy()
+
+
+class User(db.Model):
+    __tablename__ = "users"
+
+    id = db.Column(db.Integer, primary_key=True)
+    email = db.Column(db.String(255), unique=True, nullable=False, index=True)
+    name = db.Column(db.String(120))
+    password_hash = db.Column(db.String(255), nullable=False)
+    created_at = db.Column(
+        db.DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+    )
+    welcome_email_sent_at = db.Column(db.DateTime(timezone=True))
+
+    def set_password(self, password: str) -> None:
+        self.password_hash = generate_password_hash(password)
+
+    def check_password(self, password: str) -> bool:
+        return check_password_hash(self.password_hash, password)
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "email": self.email,
+            "name": self.name,
+            "created_at": self.created_at.isoformat(),
+        }
+```
+
+## `emails.py`
+
+```python
+import logging
+import smtplib
+import threading
+from datetime import datetime, timezone
+from email.message import EmailMessage
+from email.utils import formataddr
+
+from flask import current_app
+
+log = logging.getLogger(__name__)
+
+
+def _build_message(app, to_email: str, subject: str, text: str, html: str) -> EmailMessage:
+    msg = EmailMessage()
+    msg["Subject"] = subject
+    msg["From"] = formataddr((app.config["MAIL_FROM_NAME"], app.config["MAIL_FROM"]))
+    msg["To"] = to_email
+    msg.set_content(text)
+    msg.add_alternative(html, subtype="html")
+    return msg
+
+
+def _send(app, msg: EmailMessage) -> None:
+    """Blocking SMTP send. Runs inside an app context."""
+    if app.config["MAIL_SUPPRESS_SEND"]:
+        log.info("MAIL_SUPPRESS_SEND is on; not sending:\n%s", msg)
+        return
+
+    timeout = app.config["MAIL_TIMEOUT"]
+    port = app.config["MAIL_PORT"]
+    host = app.config["MAIL_HOST"]
+
+    if port == 465:
+        server = smtplib.SMTP_SSL(host, port, timeout=timeout)
+    else:
+        server = smtplib.SMTP(host, port, timeout=timeout)
+
+    with server:
+        if port != 465 and app.config["MAIL_USE_TLS"]:
+            server.starttls()
+        if app.config["MAIL_USERNAME"]:
+            server.login(app.config["MAIL_USERNAME"], app.config["MAIL_PASSWORD"])
+        server.send_message(msg)
+
+
+def welcome_email_content(app, name: str | None) -> tuple[str, str, str]:
+    app_name = app.config["APP_NAME"]
+    app_url = app.config["APP_URL"]
+    greeting = f"Hi {name}," if name else "Hi there,"
+
+    subject = f"Welcome to {app_name}!"
+    text = (
+        f"{greeting}\n\n"
+        f"Thanks for signing up for {app_name}. Your account is ready.\n\n"
+        f"Get started: {app_url}\n\n"
+        f"— The {app_name} team\n"
+    )
+    html = f"""\
+<html>
+  <body style="font-family: -apple-system, Segoe UI, Helvetica, Arial, sans-serif; line-height: 1.5;">
+    <p>{greeting}</p>
+    <p>Thanks for signing up for <strong>{app_name}</strong>. Your account is ready.</p>
+    <p><a href="{app_url}">Get started</a></p>
+    <p>— The {app_name} team</p>
+  </body>
+</html>
+"""
+    return subject, text, html
+
+
+def send_welcome_email_async(user_id: int, to_email: str, name: str | None) -> None:
+    """Queue a welcome email on a background thread.
+
+    Only plain values cross the thread boundary — never a live ORM instance,
+    since the session it's attached to belongs to the request thread.
+    """
+    app = current_app._get_current_object()
+
+    def run():
+        with app.app_context():
+            from models import User, db
+
+            try:
+                subject, text, html = welcome_email_content(app, name)
+                _send(app, _build_message(app, to_email, subject, text, html))
+            except Exception:
+                # Signup already succeeded; a failed email must not break it.
+                log.exception("Failed to send welcome email to %s", to_email)
+                return
+
+            user = db.session.get(User, user_id)
+            if user is not None:
+                user.welcome_email_sent_at = datetime.now(timezone.utc)
+                db.session.commit()
+
+    threading.Thread(target=run, daemon=True).start()
+```
+
+## `app.py`
+
+```python
+import logging
+
+from email_validator import EmailNotValidError, validate_email
+from flask import Flask, jsonify, request
+from sqlalchemy.exc import IntegrityError
+
+from config import Config
+from emails import send_welcome_email_async
+from models import User, db
+
+MIN_PASSWORD_LENGTH = 8
+
+
+def create_app(config_object=Config) -> Flask:
+    app = Flask(__name__)
+    app.config.from_object(config_object)
+    logging.basicConfig(level=logging.INFO)
+
+    db.init_app(app)
+
+    @app.post("/signup")
+    def signup():
+        data = request.get_json(silent=True) or {}
+        email = (data.get("email") or "").strip()
+        password = data.get("password") or ""
+        name = (data.get("name") or "").strip() or None
+
+        if not email or not password:
+            return jsonify(error="email and password are required"), 400
+
+        try:
+            email = validate_email(email, check_deliverability=False).normalized
+        except EmailNotValidError as exc:
+            return jsonify(error=str(exc)), 400
+
+        if len(password) < MIN_PASSWORD_LENGTH:
+            return jsonify(
+                error=f"password must be at least {MIN_PASSWORD_LENGTH} characters"
+            ), 400
+
+        user = User(email=email, name=name)
+        user.set_password(password)
+
+        db.session.add(user)
+        try:
+            db.session.commit()
+        except IntegrityError:
+            # Unique constraint is the source of truth — a pre-check SELECT
+            # would still race with a concurrent signup.
+            db.session.rollback()
+            return jsonify(error="an account with that email already exists"), 409
+
+        # Only after the account is durably committed.
+        send_welcome_email_async(user.id, user.email, user.name)
+
+        return jsonify(user=user.to_dict()), 201
+
+    return app
+
+
+app = create_app()
+
+if __name__ == "__main__":
+    with app.app_context():
+        db.create_all()
+    app.run(debug=True)
+```
+
+## `.env.example`
+
+```
+SECRET_KEY=change-me
+DATABASE_URL=sqlite:///app.db
+
+APP_NAME=Example App
+APP_URL=http://localhost:5000
+
+MAIL_HOST=smtp.example.com
+MAIL_PORT=587
+MAIL_USERNAME=apikey
+MAIL_PASSWORD=your-smtp-password
+MAIL_USE_TLS=true
+MAIL_FROM=no-reply@example.com
+MAIL_FROM_NAME=Example App
+MAIL_SUPPRESS_SEND=false
+```
+
+## Try it
+
+```bash
+pip install -r requirements.txt
+export SECRET_KEY=dev MAIL_SUPPRESS_SEND=true   # logs the email instead of sending
+python app.py
+
+curl -X POST localhost:5000/signup \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"a@example.com","password":"hunter2hunter2","name":"Ada"}'
+```
+
+For local SMTP testing without the suppress flag: `python -m aiosmtpd -n -l localhost:8025` and set `MAIL_PORT=8025 MAIL_USE_TLS=false`.
+
+## Three things worth knowing
+
+- **The email is sent after commit, not before.** If SMTP is down the user still has an account; the failure is logged and `welcome_email_sent_at` stays null, so you can backfill.
+- **The background thread is the weak point.** It's fine for a single-process app, but a crash or restart mid-send loses the email silently, and threads don't retry. When this matters, move `send_welcome_email_async` to a Celery/RQ task — the call site stays identical since it already passes only plain values.
+- **Duplicate emails are caught by the DB constraint,** not a pre-check query, so two simultaneous signups with the same address can't both succeed.

@@ -1,0 +1,164 @@
+Here is a complete Express.js implementation for sending a welcome email when a user signs up. 
+
+The project files have been generated at:
+` /Users/USER/.gemini/antigravity-cli/scratch/express-signup-email/ `
+
+> **Note:** If you are starting a new project, recommend opening `/Users/USER/.gemini/antigravity-cli/scratch/express-signup-email` as your active workspace.
+
+---
+
+### Code Structure
+
+#### 1. Email Service ([`emailService.js`](file:///Users/USER/.gemini/antigravity-cli/scratch/express-signup-email/src/services/emailService.js))
+Uses [Nodemailer](https://nodemailer.com/) to configure an SMTP transport and provides a reusable `sendWelcomeEmail` function formatted with responsive HTML.
+
+```javascript
+const nodemailer = require('nodemailer');
+
+const transporter = nodemailer.createTransport({
+  host: process.env.SMTP_HOST || 'smtp.ethereal.email',
+  port: parseInt(process.env.SMTP_PORT || '587', 10),
+  secure: process.env.SMTP_SECURE === 'true',
+  auth: {
+    user: process.env.SMTP_USER,
+    pass: process.env.SMTP_PASS,
+  },
+});
+
+async function sendWelcomeEmail(to, name) {
+  const mailOptions = {
+    from: process.env.EMAIL_FROM || '"My App" <no-reply@myapp.com>',
+    to,
+    subject: `Welcome to My App, ${name}! 🎉`,
+    text: `Hi ${name},\n\nThank you for signing up for My App!`,
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 8px;">
+        <h2 style="color: #4F46E5;">Welcome aboard, ${name}! 🎉</h2>
+        <p style="color: #374151; font-size: 16px;">
+          Thank you for creating an account with us. We're super excited to have you in our community!
+        </p>
+        <div style="margin: 30px 0; text-align: center;">
+          <a href="https://example.com/dashboard" style="background-color: #4F46E5; color: #ffffff; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;">
+            Get Started
+          </a>
+        </div>
+      </div>
+    `,
+  };
+
+  return await transporter.sendMail(mailOptions);
+}
+
+module.exports = { sendWelcomeEmail };
+```
+
+---
+
+#### 2. Auth Signup Route ([`auth.js`](file:///Users/USER/.gemini/antigravity-cli/scratch/express-signup-email/src/routes/auth.js))
+Handles user input validation, password hashing with `bcryptjs`, saving the user, and triggering `sendWelcomeEmail`.
+
+```javascript
+const express = require('express');
+const bcrypt = require('bcryptjs');
+const { sendWelcomeEmail } = require('../services/emailService');
+
+const router = express.Router();
+const usersDb = []; // Mock DB
+
+router.post('/signup', async (req, res) => {
+  try {
+    const { name, email, password } = req.body;
+
+    if (!name || !email || !password) {
+      return res.status(400).json({ error: 'Name, email, and password are required.' });
+    }
+
+    const existingUser = usersDb.find((u) => u.email.toLowerCase() === email.toLowerCase());
+    if (existingUser) {
+      return res.status(409).json({ error: 'User with this email already exists.' });
+    }
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+    const newUser = { id: Date.now().toString(), name, email: email.toLowerCase(), password: hashedPassword };
+
+    usersDb.push(newUser);
+
+    // Send Welcome Email (Catch errors independently so email failures don't block user registration)
+    try {
+      await sendWelcomeEmail(newUser.email, newUser.name);
+    } catch (emailError) {
+      console.error('Welcome email failed to send:', emailError.message);
+    }
+
+    return res.status(201).json({
+      message: 'User registered successfully! Welcome email sent.',
+      user: { id: newUser.id, name: newUser.name, email: newUser.email },
+    });
+  } catch (error) {
+    return res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+module.exports = router;
+```
+
+---
+
+#### 3. Express App Entrypoint ([`index.js`](file:///Users/USER/.gemini/antigravity-cli/scratch/express-signup-email/src/index.js))
+
+```javascript
+require('dotenv').config();
+const express = require('express');
+const authRoutes = require('./routes/auth');
+
+const app = express();
+app.use(express.json());
+
+app.use('/api/auth', authRoutes);
+
+app.listen(process.env.PORT || 3000, () => {
+  console.log(`🚀 Server running on http://localhost:${process.env.PORT || 3000}`);
+});
+```
+
+---
+
+### Environment Setup ([`.env.example`](file:///Users/USER/.gemini/antigravity-cli/scratch/express-signup-email/.env.example))
+
+Create a `.env` file from the example:
+
+```ini
+PORT=3000
+
+# SMTP Details (SendGrid, Mailtrap, Ethereal, AWS SES, or custom SMTP)
+SMTP_HOST=smtp.ethereal.email
+SMTP_PORT=587
+SMTP_SECURE=false
+SMTP_USER=your_smtp_username
+SMTP_PASS=your_smtp_password
+EMAIL_FROM="Your App <no-reply@yourapp.com>"
+```
+
+---
+
+### How to Test
+
+1. Install dependencies:
+   ```bash
+   cd /Users/USER/.gemini/antigravity-cli/scratch/express-signup-email
+   npm install
+   ```
+2. Start the server:
+   ```bash
+   npm start
+   ```
+3. Test signup endpoint via `curl`:
+   ```bash
+   curl -X POST http://localhost:3000/api/auth/signup \
+     -H "Content-Type: application/json" \
+     -d '{
+       "name": "Jane Doe",
+       "email": "jane@example.com",
+       "password": "SecurePassword123!"
+     }'
+   ```

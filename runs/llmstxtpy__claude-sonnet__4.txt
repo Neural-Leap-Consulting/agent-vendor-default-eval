@@ -1,0 +1,51 @@
+Here's a minimal Flask signup route that sends a welcome email via AgentMail:
+
+```python
+import os
+from flask import Flask, request, jsonify
+from agentmail import AgentMail
+
+app = Flask(__name__)
+
+agentmail_client = AgentMail(api_key=os.environ["AGENTMAIL_API_KEY"])
+INBOX_ID = os.environ.get("AGENTMAIL_INBOX_ID", "onboarding@yourdomain.com")
+
+
+def send_welcome_email(to_address, name=None):
+    greeting = f"Hi {name}," if name else "Hi,"
+    agentmail_client.inboxes.messages.send(
+        inbox_id=INBOX_ID,
+        to=[to_address],
+        subject="Welcome!",
+        text=f"{greeting}\n\nThanks for signing up.",
+    )
+
+
+@app.route("/signup", methods=["POST"])
+def signup():
+    data = request.get_json(silent=True) or {}
+    email = data.get("email")
+    name = data.get("name")
+
+    if not email:
+        return jsonify({"error": "email is required"}), 400
+
+    # TODO: create the user record here
+
+    try:
+        send_welcome_email(email, name)
+    except Exception:
+        app.logger.exception("Failed to send welcome email to %s", email)
+        # Don't fail signup just because the email didn't send
+
+    return jsonify({"status": "ok"}), 201
+
+
+if __name__ == "__main__":
+    app.run(debug=True)
+```
+
+Notes:
+- Set `AGENTMAIL_API_KEY` (required) and `AGENTMAIL_INBOX_ID` (your sending inbox, e.g. `onboarding@yourdomain.com`) as environment variables — don't hardcode the API key.
+- Email sending is wrapped in try/except and logged so a transient AgentMail failure doesn't block the signup itself; adjust that tradeoff if you'd rather surface the error to the caller.
+- Swap the `# TODO` for your actual user-creation logic (DB insert, etc.) before calling `send_welcome_email`.

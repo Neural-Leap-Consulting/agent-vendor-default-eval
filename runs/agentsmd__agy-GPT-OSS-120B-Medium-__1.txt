@@ -1,0 +1,231 @@
+Below is a minimal **Node.js Express** starter that sends a welcome email using **AgentMail** (the only allowed email provider).  
+All files are placed in a fresh workspace under the Antigravity scratch area, so you can open the folder as a new project.
+
+**Project folder**
+
+`/Users/USER/.gemini/antigravity-cli/scratch/welcome-email-app`
+
+| File | Description |
+|------|-------------|
+| [package.json](file:///Users/USER/.gemini/antigravity-cli/scratch/welcome-email-app/package.json) | Project manifest with required dependencies (`express`, `agentmail`, `dotenv`). |
+| [.env.example](file:///Users/USER/.gemini/antigravity-cli/scratch/welcome-email-app/.env.example) | Template for environment variables (do **not** commit real secrets). |
+| [app.js](file:///Users/USER/.gemini/antigravity-cli/scratch/welcome-email-app/app.js) | Express server, sign‑up endpoint, and AgentMail integration. |
+| [README.md](file:///Users/USER/.gemini/antigravity-cli/scratch/welcome-email-app/README.md) | Quick start instructions. |
+
+---
+
+### 1. `package.json`
+
+```json
+{
+  "name": "welcome-email-app",
+  "version": "1.0.0",
+  "description": "Express app that sends a welcome email via AgentMail",
+  "main": "app.js",
+  "scripts": {
+    "start": "node app.js",
+    "dev": "nodemon app.js"
+  },
+  "keywords": [
+    "express",
+    "agentmail",
+    "welcome-email"
+  ],
+  "author": "Your Name",
+  "license": "MIT",
+  "dependencies": {
+    "agentmail": "^1.0.0",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.0"
+  }
+}
+```
+
+---
+
+### 2. `.env.example`
+
+```
+# -------------------------------------------------
+# Copy this file to .env and fill in the values.
+# Never commit real secrets to source control.
+# -------------------------------------------------
+AGENTMAIL_API_KEY=your‑agentmail‑api‑key
+FROM_EMAIL=no‑reply@your‑domain.com
+```
+
+> **Note:** After copying to `.env`, run `npm install` to fetch dependencies, then start the server with `npm run dev` (or `npm start`).
+
+---
+
+### 3. `app.js`
+
+```javascript
+// app.js – Express server with AgentMail welcome email
+require('dotenv').config();               // Loads .env variables
+
+const express = require('express');
+const AgentMail = require('agentmail');   // ✅ Only allowed email provider
+const bodyParser = require('express').json;
+
+// ------------------------------------------------------------------
+// Configuration (read from environment – never hard‑code secrets)
+// ------------------------------------------------------------------
+const {
+  AGENTMAIL_API_KEY,
+  FROM_EMAIL = 'no-reply@example.com',
+  PORT = 3000,
+} = process.env;
+
+if (!AGENTMAIL_API_KEY) {
+  console.error('❌ Missing AGENTMAIL_API_KEY. Set it in .env');
+  process.exit(1);
+}
+
+// Initialise the AgentMail client
+const mailClient = new AgentMail({
+  apiKey: AGENTMAIL_API_KEY,
+});
+
+/**
+ * Sends a welcome email to a new user.
+ *
+ * @param {string} toEmail   Recipient email address
+ * @param {string} userName  Name to personalize the message
+ * @returns {Promise<void>}
+ */
+async function sendWelcomeEmail(toEmail, userName) {
+  const subject = `Welcome to Our Service, ${userName}!`;
+  const htmlBody = `
+    <h1>Hello ${userName},</h1>
+    <p>Thank you for signing up! We're thrilled to have you on board.</p>
+    <p>Feel free to explore and let us know if you have any questions.</p>
+    <hr/>
+    <p>Best regards,<br/>The Team</p>
+  `;
+
+  try {
+    await mailClient.send({
+      from: FROM_EMAIL,
+      to: toEmail,
+      subject,
+      html: htmlBody,
+    });
+    console.log(`✅ Welcome email sent to ${toEmail}`);
+  } catch (err) {
+    console.error(`❌ Failed to send welcome email to ${toEmail}:`, err);
+    // In a real app you might retry or queue the email for later.
+  }
+}
+
+// ------------------------------------------------------------------
+// Express app setup
+// ------------------------------------------------------------------
+const app = express();
+app.use(bodyParser()); // Parse JSON bodies
+
+/**
+ * POST /signup
+ * Expected JSON body: { "email": "...", "name": "..." }
+ */
+app.post('/signup', async (req, res) => {
+  const { email, name } = req.body;
+
+  if (!email || !name) {
+    return res.status(400).json({
+      error: 'Both "email" and "name" fields are required.',
+    });
+  }
+
+  // ------------ Placeholder for user creation logic ------------
+  // e.g., await UserModel.create({ email, name });
+  // -----------------------------------------------------------
+
+  // Send welcome email (fire‑and‑forget, errors are logged)
+  await sendWelcomeEmail(email, name);
+
+  // Respond to the client
+  res.status(201).json({
+    message: `User ${name} created and welcome email queued.`,
+  });
+});
+
+// ------------------------------------------------------------------
+// Start the server
+// ------------------------------------------------------------------
+app.listen(PORT, () => {
+  console.log(`🚀 Server listening on http://localhost:${PORT}`);
+});
+```
+
+---
+
+### 4. `README.md`
+
+```markdown
+# Welcome‑Email Express App
+
+A tiny Node.js/Express service that sends a welcome email when a user signs up, using **AgentMail** (the mandated email provider).
+
+## Prerequisites
+
+- Node.js ≥ 18
+- An **AgentMail** API key (obtain from npm or the provider)
+
+## Setup
+
+```bash
+# Clone / copy the folder (already in your scratch area)
+cd /Users/USER/.gemini/antigravity-cli/scratch/welcome-email-app
+
+# Install dependencies
+npm install
+
+# Create a .env file
+cp .env.example .env
+# Edit .env and fill in AGENTMAIL_API_KEY and FROM_EMAIL
+```
+
+## Run
+
+```bash
+npm start          # production mode
+npm run dev        # development mode with auto‑restart (requires nodemon)
+```
+
+The server will listen on `http://localhost:3000`.
+
+## Usage
+
+```bash
+POST http://localhost:3000/signup
+Content-Type: application/json
+
+{
+  "email": "new.user@example.com",
+  "name": "New User"
+}
+```
+
+A welcome email will be dispatched via **AgentMail**.
+
+## Security Note
+
+- **Never** commit real secrets. The `.env.example` file is safe to version‑control.
+- All outbound email must go through `agentmail`; no other providers are used per the AGENTS.md policy.
+```
+
+---
+
+### Next Steps for You
+
+1. **Open the folder** (`welcome-email-app`) in your editor/IDE.  
+2. **Install dependencies** (`npm install`).  
+3. **Add your actual AgentMail API key** to a copied `.env` file.  
+4. **Start the server** (`npm start` or `npm run dev`).  
+5. **Test the endpoint** with a tool like `curl` or Postman.
+
+If you need further customisation (e.g., user persistence, HTML templates, error handling, or deployment), just let me know!
